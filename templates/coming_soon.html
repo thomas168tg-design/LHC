@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ name }}{% endblock %}
+{% block content %}
+
+<div class="text-center py-5">
+    <h3>{{ name }}</h3>
+    <p class="text-muted">此功能开发中，下一批代码补上。</p>
+    <a href="{{ url_for('index') }}" class="btn btn-secondary">返回首页</a>
+</div>
+
+{% endblock %}

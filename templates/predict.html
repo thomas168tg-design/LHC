@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}单期预测{% endblock %}
+
+{% macro ball(n, idx) -%}
+  {%- if idx < 5 -%}<span class="num-ball rank-g">{{ n }}</span>
+  {%- elif idx < 10 -%}<span class="num-ball rank-o">{{ n }}</span>
+  {%- elif idx < 12 -%}<span class="num-ball rank-p">{{ n }}</span>
+  {%- elif idx < 20 -%}<span class="num-ball rank-b">{{ n }}</span>
+  {%- else -%}<span class="num-ball">{{ n }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <h3 class="mb-0">单期预测</h3>
+    {% if r %}
+    <button class="btn btn-outline-dark" onclick="window.print()">📄 下载 PDF</button>
+    {% endif %}
+</div>
+
+<form class="row g-2 mb-4 no-print" method="post">
+    <div class="col-auto">
+        <label class="form-label small mb-0">目标期</label>
+        <input type="text" name="target_issue" class="form-control"
+               value="{{ r.target_issue if r else (default_issue or '') }}">
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">模型</label>
+        <select name="display_method" class="form-select">
+            {% if r %}
+                {% for m in r.base_methods %}
+                    <option value="{{ m }}" {% if m == r.display_method %}selected{% endif %}>[基础] {{ m }}</option>
+                {% endfor %}
+                {% for m in r.agg_methods %}
+                    <option value="{{ m }}" {% if m == r.display_method %}selected{% endif %}>[聚合] {{ m }}</option>
+                {% endfor %}
+            {% else %}
+                <option value="">默认（L30_状态加权）</option>
+            {% endif %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">共识TopN</label>
+        <select name="consensus_n" class="form-select">
+            {% for n in range(1, 21) %}
+                <option value="{{ n }}" {% if r and n == r.consensus_n %}selected{% elif not r and n == 10 %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">近期命中</label>
+        <select name="recent_n" class="form-select">
+            {% for n in [10,20,30,40,50,60,70,80,90,100] %}
+                <option value="{{ n }}" {% if r and n == r.recent_n %}selected{% elif not r and n == 10 %}selected{% endif %}>{{ n }} 期</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto align-self-end">
+        <button class="btn btn-primary">预测</button>
+    </div>
+    {% if r %}
+    <div class="col-auto align-self-end text-muted small">
+        耗时 {{ r.elapsed }}s / 页面 {{ r.wall }}s
+    </div>
+    {% endif %}
+</form>
+
+{% if not r %}
+<div class="text-center py-5 text-muted">
+    <p>选择参数后点击"预测"按钮开始计算。</p>
+    <p class="small">首次运行约 6-10 秒，之后有缓存会更快。</p>
+</div>
+{% else %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="small text-uppercase text-muted">目标期</div>
+                <div class="display-6">{{ r.target_issue }}</div>
+            </div>
+            <div class="col-md-8">
+                <div class="small text-uppercase text-muted">使用模型</div>
+                <div class="fs-5">{{ r.display_method }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 信号 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">信号（基于 {{ r.display_method }}）</h6>
+        <table class="table table-sm mb-0">
+            <thead>
+                <tr>
+                    <th>档位</th><th>近100</th><th>近30</th>
+                    <th>打平线</th><th>连不中</th><th>判断</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for k, s in r.signals.items() %}
+                <tr>
+                    <td>Top{{ k }}</td>
+                    <td>{{ '%.2f'|format(s.rate*100) }}%</td>
+                    <td>{{ '%.2f'|format(s.rate30*100) }}%</td>
+                    <td>{{ '%.2f'|format(s.breakeven*100) }}%</td>
+                    <td>{{ s.consecutive_miss }}</td>
+                    <td>
+                        {% if s.should_bet %}
+                            <span class="badge badge-ok">✓ 下注</span>
+                        {% else %}
+                            <span class="badge badge-no">✗ 观望</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 下注号码 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">下注号码（{{ r.display_method }}）</h6>
+
+        {% for k in [5, 10, 12, 20] %}
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <div class="small fw-bold">Top{{ k }}</div>
+                <button class="btn btn-sm btn-outline-secondary no-print"
+                        onclick="copyNums('nums-{{ k }}', event)">📋 复制</button>
+            </div>
+            <div id="nums-{{ k }}" data-raw="{{ r.ranked[:k]|join(',') }}">
+                {% for n in r.ranked[:k] %}{{ ball(n, loop.index0) }}{% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- 所有模型 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">所有模型 Top5 / Top10 / Top15 / Top20（增量）</h6>
+        <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>类型</th><th>模型</th>
+                    <th>1-5</th><th>6-10</th><th>11-15</th><th>16-20</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for m in r.base_methods + r.agg_methods %}
+                {% if m in r.all_predictions %}
+                {% set arr = r.all_predictions[m] %}
+                <tr>
+                    <td>{% if m in r.base_methods %}基础{% else %}聚合{% endif %}</td>
+                    <td class="small">{{ m }}</td>
+                    <td>{% for n in arr[0:5] %}{{ ball(n, loop.index0) }}{% endfor %}</td>
+                    <td>{% for n in arr[5:10] %}{{ ball(n, 5 + loop.index0) }}{% endfor %}</td>
+                    <td>{% for n in arr[10:15] %}{{ ball(n, 10 + loop.index0) }}{% endfor %}</td>
+                    <td>{% for n in arr[15:20] %}{{ ball(n, 15 + loop.index0) }}{% endfor %}</td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+
+<!-- 多模型共识（横排：上号下票） -->
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">多模型共识 Top{{ r.consensus_n }}</h6>
+        <div class="table-responsive">
+        <table class="table table-sm table-bordered text-center mb-0">
+            <tbody>
+                <tr>
+                    <td class="fw-bold bg-light" style="width:80px;">号码</td>
+                    {% for num, cnt in r.consensus_all[:r.consensus_n] %}
+                        <td><span class="num-ball">{{ num }}</span></td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td class="fw-bold bg-light">票数</td>
+                    {% for num, cnt in r.consensus_all[:r.consensus_n] %}
+                        <td>{{ cnt }}/{{ r.all_predictions|length }}</td>
+                    {% endfor %}
+                </tr>
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+
+<!-- 最近命中 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">最近 {{ r.recent_n }} 期命中（{{ r.display_method }}）</h6>
+        <div class="scroll-box" style="max-height: 700px; overflow-y: auto;">
+            <table class="table table-sm mb-0">
+                <thead>
+                    <tr><th>期数</th><th>实际</th><th>排名</th>
+                        <th>T5</th><th>T10</th><th>T20</th></tr>
+                </thead>
+                <tbody>
+                {% for x in r.recent_history[-r.recent_n:]|reverse %}
+                    <tr>
+                        <td>{{ x.issue }}</td>
+                        <td><span class="num-ball">{{ x.actual }}</span></td>
+                        <td>{{ x.pos }}</td>
+                        <td>{% if x.t5 %}✓{% else %}—{% endif %}</td>
+                        <td>{% if x.t10 %}✓{% else %}—{% endif %}</td>
+                        <td>{% if x.t20 %}✓{% else %}—{% endif %}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 完整49 -->
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">完整 49 号排序（{{ r.display_method }}）</h6>
+        <div>
+            {% for n in r.ranked %}{{ ball(n, loop.index0) }}{% endfor %}
+        </div>
+    </div>
+</div>
+
+{% endif %}
+
+<script>
+function copyNums(id, ev) {
+    const el = document.getElementById(id);
+    const text = el.getAttribute('data-raw') || el.textContent.trim();
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = ev.target;
+        const old = btn.textContent;
+        btn.textContent = '✓ 已复制';
+        setTimeout(() => { btn.textContent = old; }, 1500);
+    }).catch(err => alert('复制失败：' + err));
+}
+</script>
+
+{% endblock %}

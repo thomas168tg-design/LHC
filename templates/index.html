@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}首页{% endblock %}
+{% block content %}
+
+<h3 class="mb-4">系统概览</h3>
+
+<div class="row g-3">
+    <div class="col-md-4">
+        <div class="card text-bg-primary">
+            <div class="card-body">
+                <div class="text-uppercase small">总期数</div>
+                <div class="display-6">{{ stats.total }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-success">
+            <div class="card-body">
+                <div class="text-uppercase small">起始期</div>
+                <div class="display-6">{{ stats.min_issue or '—' }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-warning">
+            <div class="card-body">
+                <div class="text-uppercase small">最新期</div>
+                <div class="display-6">{{ stats.max_issue or '—' }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mt-4">
+    <div class="col-md-3">
+        <a href="{{ url_for('draws_list') }}" class="btn btn-outline-dark w-100 py-4">
+            📋 数据管理
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{{ url_for('predict') }}" class="btn btn-outline-primary w-100 py-4">
+            🎯 单期预测
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{{ url_for('panel') }}" class="btn btn-outline-success w-100 py-4">
+            📊 模型面板
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{{ url_for('backtest') }}" class="btn btn-outline-warning w-100 py-4">
+            🧪 区域盲测
+        </a>
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}MCSX3V9{% endblock %} · LHC</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #f6f7f9; }
+        .navbar-brand { font-weight: 700; letter-spacing: 1px; }
+        .card { border: none; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+        .num-ball {
+            display: inline-block; width: 34px; height: 34px; line-height: 34px;
+            text-align: center; border-radius: 50%; font-weight: 700;
+            background: #e5e7eb; color: #374151; margin: 2px;
+            font-size: 13px;
+        }
+        .num-ball.rank-g { background: #dc2626; color: #fff; }
+        .num-ball.rank-o { background: #f59e0b; color: #fff; }
+        .num-ball.rank-p { background: #8b5cf6; color: #fff; }
+        .num-ball.rank-b { background: #3b82f6; color: #fff; }
+        .badge-ok { background: #10b981; }
+        .badge-no { background: #ef4444; }
+        .table-sm td, .table-sm th { padding: .35rem .5rem; }
+        footer { color: #94a3b8; font-size: 12px; padding: 20px 0; text-align: center; }
+
+        /* 打印设置 */
+        @page {
+            size: A4;
+            margin: 10mm;
+        }
+
+        @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .navbar, .no-print, footer, .alert { display: none !important; }
+            body { background: #fff; font-size: 11px; }
+            .container { max-width: 100%; }
+
+            /* 卡片整体不跨页 */
+            .card {
+                box-shadow: none !important;
+                border: 1px solid #ddd !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }
+
+            /* 滚动条在打印时展开 */
+            .scroll-box {
+                max-height: none !important;
+                overflow: visible !important;
+            }
+
+            /* 表格行不跨页 */
+            tr {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }
+            thead { display: table-header-group; }
+
+            /* 标题不要单独在页面末尾 */
+            h3, h5, h6 {
+                page-break-after: avoid !important;
+                break-after: avoid !important;
+            }
+
+            /* 表格小一点 */
+            .num-ball {
+                width: 28px !important;
+                height: 28px !important;
+                line-height: 28px !important;
+                font-size: 11px !important;
+                margin: 1px !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="{{ url_for('index') }}">LHC · MCSX3V9</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="nav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('draws_list') }}">数据管理</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('predict') }}">单期预测</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('backtest') }}">区域盲测</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('panel') }}">模型面板</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('streak') }}">连不中</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('cold') }}">冷号</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('state') }}">状态</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('insurance') }}">递进注</a></li>
+            </ul>
+            <ul class="navbar-nav">
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">退出</a></li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container my-4">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for cat, msg in messages %}
+                <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+                    {{ msg }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+
+</div>
+
+<footer>
+    MCSX3V9 · Render + Turso · {% block footer_extra %}{% endblock %}
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

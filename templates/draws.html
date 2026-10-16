@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}数据管理{% endblock %}
+{% block content %}
+
+{% if latest %}
+<div class="alert alert-info mb-3">
+    <span class="fs-5">
+        <strong>{{ latest['期数'] }}期</strong>　开奖号码：
+        {% if latest['号码'] %}
+            {% set ns = latest['号码'].split(',') %}
+            {% for n in ns[:6] %}{{ '%02d'|format(n|int) }}{% if not loop.last %} + {% endif %}{% endfor %}
+            <span class="text-danger fw-bold">--- T{{ '%02d'|format(ns[6]|int) }}</span>
+        {% else %}
+            <span class="text-muted">（仅特码）</span>
+            <span class="num-ball">{{ latest['特码'] }}</span>
+        {% endif %}
+    </span>
+</div>
+{% endif %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">开奖数据</h3>
+    <div>
+        <span class="badge text-bg-secondary me-2">{{ stats.total }} 期</span>
+        <span class="badge text-bg-info">最新 {{ stats.max_issue }}</span>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">从 macaujc 更新（最多 20 期）</h6>
+                <form method="post" action="{{ url_for('draws_update') }}">
+                    <button class="btn btn-primary">立即更新</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">手动录入 / 修改单期</h6>
+                <form method="post" action="{{ url_for('draws_add') }}" class="row g-2">
+                    <div class="col">
+                        <input type="text" name="issue" class="form-control"
+                               placeholder="期数 如 2026290" required>
+                    </div>
+                    <div class="col">
+                        <input type="number" name="special" class="form-control"
+                               placeholder="特码 1-49" min="1" max="49" required>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-success">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <div>
+        <label class="me-2">显示条数：</label>
+        <form method="get" class="d-inline">
+            <select name="limit" class="form-select d-inline-block w-auto"
+                    onchange="this.form.submit()">
+                {% for v in [10,20,30,60,90,100,120,150,180,200,300,365,500,1000] %}
+                    <option value="{{ v }}" {% if v == limit %}selected{% endif %}>{{ v }}</option>
+                {% endfor %}
+                <option value="0" {% if limit == 0 %}selected{% endif %}>全部</option>
+            </select>
+        </form>
+    </div>
+    <div class="text-muted small">当前显示 {{ records|length }} 条</div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div style="max-height: 600px; overflow-y: auto;">
+            <table class="table table-sm table-striped mb-0">
+                <thead class="table-dark sticky-top">
+                    <tr>
+                        <th>期数</th>
+                        <th>平码</th>
+                        <th>特码</th>
+                        <th>尾数</th>
+                        <th>单双</th>
+                        <th>大小</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                    <tr>
+                        <td>{{ r['期数'] }}</td>
+                        <td class="small">
+                            {% if r['号码'] %}
+                                {% set ns = r['号码'].split(',') %}
+                                {% for n in ns[:6] %}{{ '%02d'|format(n|int) }}{% if not loop.last %} + {% endif %}{% endfor %}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if r['号码'] %}
+                                {% set ns = r['号码'].split(',') %}
+                                <span class="num-ball rank-g">{{ '%02d'|format(ns[6]|int) }}</span>
+                            {% else %}
+                                <span class="num-ball">{{ r['特码'] }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ r['特码'] % 10 }}尾</td>
+                        <td>{% if r['特码'] % 2 == 1 %}单{% else %}双{% endif %}</td>
+                        <td>{% if r['特码'] >= 25 %}大{% else %}小{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
