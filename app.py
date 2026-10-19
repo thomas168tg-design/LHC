@@ -190,35 +190,74 @@ def predict():
 #            其他（待开发）
 # ============================================================
 
-@app.route("/backtest")
+# ============================================================
+#            区域盲测
+# ============================================================
+@app.route("/backtest", methods=["GET", "POST"])
 @login_required
 def backtest():
-    return render_template("coming_soon.html", name="区域盲测")
+    if request.method == "GET":
+        df = draws.get_all_draws()
+        max_issue = int(df["期数"].max()) if not df.empty else 0
+        min_issue = int(df["期数"].min()) if not df.empty else 0
+        return render_template("backtest.html", r=None, min_issue=min_issue, max_issue=max_issue)
 
+    start_issue = int(request.form.get("start_issue", 2023001))
+    end_issue = int(request.form.get("end_issue", 2026289))
+    use_timing = request.form.get("use_timing") == "1"
+    
+    top_ks_str = request.form.getlist("top_ks")
+    top_ks = [int(k) for k in top_ks_str] if top_ks_str else [5, 10, 20]
 
+    t0 = time.time()
+    r = prediction.run_backtest(start_issue, end_issue, top_ks, use_timing)
+    r["wall"] = round(time.time() - t0, 1)
+    
+    return render_template("backtest.html", r=r, min_issue=start_issue, max_issue=end_issue)
+
+# ============================================================
+#            连不中统计
+# ============================================================
 @app.route("/streak")
 @login_required
 def streak():
-    return render_template("coming_soon.html", name="连不中统计")
+    t0 = time.time()
+    r = prediction.run_streak_view()
+    r["wall"] = round(time.time() - t0, 1)
+    return render_template("streak.html", r=r)
 
-
+# ============================================================
+#            冷号监控
+# ============================================================
 @app.route("/cold")
 @login_required
 def cold():
-    return render_template("coming_soon.html", name="冷号监控")
+    t0 = time.time()
+    r = prediction.run_cold_watch()
+    r["wall"] = round(time.time() - t0, 1)
+    return render_template("cold.html", r=r)
 
-
+# ============================================================
+#            状态查看
+# ============================================================
 @app.route("/state")
 @login_required
 def state():
-    return render_template("coming_soon.html", name="状态查看")
+    t0 = time.time()
+    r = prediction.run_state_view()
+    r["wall"] = round(time.time() - t0, 1)
+    return render_template("state.html", r=r)
 
-
+# ============================================================
+#            模型对比面板
+# ============================================================
 @app.route("/panel")
 @login_required
 def panel():
-    return render_template("coming_soon.html", name="模型对比面板")
-
+    t0 = time.time()
+    r = prediction.run_model_panel()
+    r["wall"] = round(time.time() - t0, 1)
+    return render_template("panel.html", r=r)
 
 @app.route("/insurance")
 @login_required

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}区域盲测{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">区域逐期盲测</h3>
+    {% if r %}<div class="text-muted small">耗时 {{ r.wall }}s</div>{% endif %}
+</div>
+
+<form class="row g-2 mb-4" method="post">
+    <div class="col-auto">
+        <label class="form-label small mb-0">起始期</label>
+        <input type="number" name="start_issue" class="form-control" value="{{ r.start_issue if r else min_issue }}">
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">结束期</label>
+        <input type="number" name="end_issue" class="form-control" value="{{ r.end_issue if r else max_issue }}">
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0 d-block">档位</label>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="top_ks" value="5" id="k5" {% if not r or 5 in r.top_ks %}checked{% endif %}>
+            <label class="form-check-label" for="k5">Top5</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="top_ks" value="10" id="k10" {% if not r or 10 in r.top_ks %}checked{% endif %}>
+            <label class="form-check-label" for="k10">Top10</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="top_ks" value="12" id="k12" {% if not r or 12 in r.top_ks %}checked{% endif %}>
+            <label class="form-check-label" for="k12">Top12</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="top_ks" value="20" id="k20" {% if not r or 20 in r.top_ks %}checked{% endif %}>
+            <label class="form-check-label" for="k20">Top20</label>
+        </div>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0 d-block">择时</label>
+        <div class="form-check form-switch mt-1">
+            <input class="form-check-input" type="checkbox" name="use_timing" value="1" id="use_timing" {% if r and r.use_timing %}checked{% endif %}>
+            <label class="form-check-label" for="use_timing">近100期打平线过滤</label>
+        </div>
+    </div>
+    <div class="col-auto align-self-end">
+        <button class="btn btn-primary">开始测试</button>
+    </div>
+</form>
+
+{% if r %}
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover table-sm mb-0 text-center align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>模型</th><th>档位</th><th>择时</th><th>下注期</th>
+                    <th>命中</th><th>命中率</th><th>打平线</th><th>利润(元)</th><th>ROI</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in r.summary %}
+                <tr>
+                    <td class="small">{{ row.method }}</td>
+                    <td>Top{{ row.top_k }}</td>
+                    <td>{% if row.timing %}是{% else %}否{% endif %}</td>
+                    <td>{{ row.bet_count }}</td>
+                    <td>{{ row.hit_count }}</td>
+                    <td class="{% if row.hit_rate*100 > row.top_k*100/46 %}text-success fw-bold{% else %}text-danger{% endif %}">
+                        {{ '%.2f'|format(row.hit_rate * 100) }}%
+                    </td>
+                    <td class="text-muted">{{ '%.2f'|format(row.top_k * 100 / 46) }}%</td>
+                    <td class="{% if row.profit > 0 %}text-success{% else %}text-danger{% endif %}">
+                        {{ '+' if row.profit > 0 }}{{ row.profit }}
+                    </td>
+                    <td class="{% if row.roi > 0 %}text-success{% else %}text-danger{% endif %}">
+                        {{ '+' if row.roi > 0 }}{{ '%.2f'|format(row.roi * 100) }}%
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

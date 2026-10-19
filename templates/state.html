@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}状态查看{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">状态查看 (目标期 {{ r.target_issue }})</h3>
+    <div class="text-muted small">耗时 {{ r.wall }}s</div>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-dark text-white">上期差分</div>
+            <div class="card-body">
+                <p>上上期排名: <strong>{{ r.diff.prev_prev_rank }}</strong></p>
+                <p>上期排名: <strong>{{ r.diff.prev_rank }}</strong></p>
+                <p>差分值: <strong class="fs-4 {% if r.diff.rank_diff > 25 %}text-danger{% endif %}">{{ '+' if r.diff.rank_diff > 0 }}{{ r.diff.rank_diff }}</strong></p>
+                <div class="alert alert-warning mb-0">{{ r.diff.note }}</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-dark text-white">尾数当前状态</div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 text-center">
+                    <thead><tr><th>尾数</th><th>遗漏</th><th>权重</th><th>说明</th></tr></thead>
+                    <tbody>
+                        {% for t in r.tail_streaks %}
+                        <tr>
+                            <td class="fw-bold">{{ t.tail }}尾</td>
+                            <td>{{ t.streak }}</td>
+                            <td class="fw-bold {% if t.weight > 1 %}text-success{% elif t.weight < 1 %}text-danger{% endif %}">{{ t.weight }}</td>
+                            <td class="small">{{ t.desc }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header bg-dark text-white">近 100 期模型表现 ({{ r.method }})</div>
+    <div class="card-body">
+        <div class="row text-center">
+            {% for m in r.model_100 %}
+            <div class="col-md-4">
+                <div class="border rounded p-3">
+                    <h5>Top{{ m.top_k }}</h5>
+                    <h3 class="{% if m.above %}text-success{% else %}text-danger{% endif %}">{{ '%.2f'|format(m.rate*100) }}%</h3>
+                    <div class="small text-muted">打平线 {{ '%.2f'|format(m.breakeven*100) }}%</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

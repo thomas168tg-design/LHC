@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}模型面板{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">模型对比面板</h3>
+    <div class="text-muted small">截止 {{ r.end_issue }}，耗时 {{ r.wall }}s</div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-dark text-white">1. MRR 对比 (数值越大越好)</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered text-center mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="text-start">模型</th>
+                        {% for w in r.windows %}<th>{{ w }}期</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m, d in r.by_model.items() %}
+                    <tr>
+                        <td class="text-start small fw-bold">{{ m }}</td>
+                        {% for w in r.windows %}
+                        <td class="{% if r.best_mrr[w][0] == m %}bg-success text-white fw-bold{% endif %}">
+                            {{ d.mrr[w] }}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header bg-dark text-white">2. Top10 命中率对比</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered text-center mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="text-start">模型</th>
+                        {% for w in r.windows %}<th>{{ w }}期</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m, d in r.by_model.items() %}
+                    <tr>
+                        <td class="text-start small fw-bold">{{ m }}</td>
+                        {% for w in r.windows %}
+                        <td class="{% if r.best_top10[w][0] == m %}bg-success text-white fw-bold{% endif %}">
+                            {{ '%.2f'|format(d.top10[w]*100) }}%
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
