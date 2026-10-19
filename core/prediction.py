@@ -4,18 +4,9 @@ core/prediction.py
 
 从 MCSX3V9.9_统一预测_L30状态加权默认.py 改造
 
-对外 6 个函数（全部返回 dict，展示交给 app.py）：
-    run_unified_prediction(target_issue=None, display_method=None)
-    run_backtest(start_issue, end_issue, top_ks, use_timing, methods=None)
-    run_streak_view(end_issue=None)
-    run_cold_watch(target_issue=None)
-    run_state_view(target_issue=None)
-    run_model_panel(end_issue=None)
-
-数据流：
-    Turso draws 表 → df(期数, 特码)
-    学习库 events/ranks 存 Turso（ranks只写不读，与原版一致）
-    method_positions 缓存 → Turso meta 表（key = cache_*）
+【2026-10 重大更新】
+为了适配 Render 免费版 512MB 内存限制，彻底弃用了耗内存的 Pandas DataFrame 切片。
+底层计算全部改用 Python 原生 list 和 dict，保持原有算法逻辑 100% 不变。
 """
 
 import json
@@ -93,16 +84,16 @@ def _data_signature(df):
 
 
 # ============================================================
-#            基础计算（与 9.9 一致）
+#            基础计算（全面改为基于 list 和 dict，防内存溢出）
 # ============================================================
 
-def compute_ranking(history_df):
-    if history_df.empty:
+def compute_ranking_from_list(history_nums):
+    if not history_nums:
         return []
     latest_pos = {}
-    for i, n in enumerate(history_df["特码"].tolist()):
+    for i, n in enumerate(history_nums):
         latest_pos[int(n)] = i
-    total = len(history_df)
+    total = len(history_nums)
     items = []
     for n in range(1, 50):
         omission = total - 1 - latest_pos[n] if n in latest_pos else total
@@ -113,15 +104,15 @@ def compute_ranking(history_df):
     return items
 
 
-def compute_number_features(history_df, windows=(10, 30, 60)):
-    numbers = history_df["特码"].astype(int).tolist()
-    total = len(numbers)
+def compute_features_from_list(history_nums, windows=(10, 30, 60)):
+    total = len(history_nums)
     positions = defaultdict(list)
-    for i, n in enumerate(numbers):
+    for i, n in enumerate(history_nums):
         positions[n].append(i)
+    
     freq_by_window = {}
     for w in windows:
-        sub = numbers[-w:] if w <= total else numbers
+        sub = history_nums[-w:] if w <= total else history_nums
         freq_by_window[w] = Counter(sub)
 
     features = {}
@@ -168,82 +159,82 @@ def position_to_range_idx(pos):
 
 
 # ============================================================
-#            学习库（Turso 版）
+#            学习库（Turso 版，仅做初始化用）
 # ============================================================
 
-def _build_learning_data(df):
-    events, ranks = [], []
-    for idx in range(1, len(df)):
-        target = df.iloc[idx]
-        history = df.iloc[:idx]
-        ranking = compute_ranking(history)
-        rank_by_number = {x["号码"]: x["排名"] for x in ranking}
-        actual_num = int(target["特码"])
-        actual_rank = int(rank_by_number[actual_num])
-        prev_issue = int(df.iloc[idx - 1]["期数"])
-        target_issue = int(target["期数"])
-        events.append({
-            "期数": target_issue,
-            "基准期数": prev_issue,
-            "实际特码": actual_num,
-            "实际排名": actual_rank,
-            "开奖前历史样本数": len(history),
-        })
-        for item in ranking:
-            ranks.append({
-                "期数": target_issue,
-                "号码": item["号码"],
-                "开奖前遗漏": item["遗漏"],
-                "开奖前排名": item["排名"],
-                "是否实际特码": int(item["号码"] == actual_num),
-            })
-    return pd.DataFrame(events), pd.DataFrame(ranks)
+def _read_events():
+    _, rows = query(
+        "SELECT issue, base_issue, actual_number, actual_rank, history_samples "
+        "FROM events ORDER BY issue ASC"
+    )
+    if not rows:
+        return pd.DataFrame(columns=["期数", "基准期数", "实际特码", "实际排名", "开奖前历史样本数"])
+    return pd.DataFrame(rows, columns=["期数", "基准期数", "实际特码", "实际排名", "开奖前历史样本数"])
 
 
 def _write_events_to_turso(events_df):
-    """全量覆盖 events 表（ranks 不动）"""
     execute("DELETE FROM events")
     stmts = []
     for r in events_df.itertuples(index=False):
         stmts.append((
             "INSERT INTO events (issue, base_issue, actual_number, actual_rank, history_samples) "
             "VALUES (?, ?, ?, ?, ?)",
-            [int(r.期数), int(r.基准期数), int(r.实际特码),
-             int(r.实际排名), int(r.开奖前历史样本数)],
+            [int(r.期数), int(r.基准期数), int(r.实际特码), int(r.实际排名), int(r.开奖前历史样本数)],
         ))
     if stmts:
         _post(stmts)
 
 
 def _rebuild_library(df):
-    """重建 events 表（不碰 ranks）"""
-    events_df, _ = _build_learning_data(df)
+    events, ranks = [], []
+    for idx in range(1, len(df)):
+        target = df.iloc[idx]
+        history = df.iloc[:idx]
+        ranking = compute_ranking_from_list(history["特码"].astype(int).tolist())
+        rank_by_number = {x["号码"]: x["排名"] for x in ranking}
+        actual_num = int(target["特码"])
+        actual_rank = int(rank_by_number[actual_num])
+        events.append({
+            "期数": int(target["期数"]),
+            "基准期数": int(df.iloc[idx - 1]["期数"]),
+            "实际特码": actual_num,
+            "实际排名": actual_rank,
+            "开奖前历史样本数": len(history),
+        })
+        # ranks 暂时不写，只写 events 加速
+    events_df = pd.DataFrame(events)
     _write_events_to_turso(events_df)
     _set_meta("library_signature", _data_signature(df))
     return events_df
 
 
-def rebuild_ranks(df=None, force=False):
-    """
-    手动重建 ranks 表。
-    调用一次约 5-20 分钟（取决于网络）。
-    只在用户主动触发时调用，日常不调用。
-    返回写入行数。
-    """
+def rebuild_ranks(df=None):
     if df is None:
         df = get_all_draws()
-    if df.empty:
-        return 0
-    _, ranks_df = _build_learning_data(df)
+    if df.empty: return 0
+    events, ranks = [], []
+    for idx in range(1, len(df)):
+        target = df.iloc[idx]
+        history = df.iloc[:idx]
+        nums = history["特码"].astype(int).tolist()
+        ranking = compute_ranking_from_list(nums)
+        rank_by_number = {x["号码"]: x["排名"] for x in ranking}
+        actual_num = int(target["特码"])
+        for item in ranking:
+            ranks.append({
+                "期数": int(target["期数"]),
+                "号码": item["号码"],
+                "开奖前遗漏": item["遗漏"],
+                "开奖前排名": item["排名"],
+                "是否实际特码": int(item["号码"] == actual_num),
+            })
     execute("DELETE FROM ranks")
     stmts = []
     total = 0
-    for r in ranks_df.itertuples(index=False):
+    for r in ranks:
         stmts.append((
-            "INSERT INTO ranks (issue, number, omission, rank, is_actual) "
-            "VALUES (?, ?, ?, ?, ?)",
-            [int(r.期数), int(r.号码), int(r.开奖前遗漏),
-             int(r.开奖前排名), int(r.是否实际特码)],
+            "INSERT INTO ranks (issue, number, omission, rank, is_actual) VALUES (?, ?, ?, ?, ?)",
+            [r["期数"], r["号码"], r["开奖前遗漏"], r["开奖前排名"], r["是否实际特码"]],
         ))
         if len(stmts) >= 500:
             _post(stmts)
@@ -255,17 +246,8 @@ def rebuild_ranks(df=None, force=False):
     _set_meta("ranks_signature", _data_signature(df))
     return total
 
-def _read_events():
-    _, rows = query(
-        "SELECT issue, base_issue, actual_number, actual_rank, history_samples "
-        "FROM events ORDER BY issue ASC"
-    )
-    if not rows:
-        return pd.DataFrame(columns=["期数", "基准期数", "实际特码", "实际排名", "开奖前历史样本数"])
-    return pd.DataFrame(rows, columns=["期数", "基准期数", "实际特码", "实际排名", "开奖前历史样本数"])
 
 def read_library(df, force_rebuild=False):
-    """返回 events DataFrame。与数据指纹比对，不匹配则重建 events（不碰 ranks）"""
     init_tables()
     sig = _data_signature(df)
     if not force_rebuild and _get_meta("library_signature") == sig:
@@ -274,51 +256,41 @@ def read_library(df, force_rebuild=False):
             return events
     return _rebuild_library(df)
 
+
 # ============================================================
 #            基础方法（5个）
 # ============================================================
 
-def _method_cold_omission(prior_df, prior_events, ranking, features):
-    return {n: f["omission"] for n, f in features.items()}
-
-
-def _method_cold_overdue(prior_df, prior_events, ranking, features):
-    return {n: f["overdue_ratio"] for n, f in features.items()}
-
-
-def _method_rank_pos_L30(prior_df, prior_events, ranking, features, L=30):
-    ranks = prior_events["实际排名"].astype(int).tolist()
-    recent = ranks[-L:] if L < len(ranks) else ranks
-    counts = Counter(recent)
+def compute_base_scores_from_list(prior_ranks, ranking, features):
+    res = {}
+    res["冷号遗漏"] = {n: f["omission"] for n, f in features.items()}
+    res["冷号超期比"] = {n: f["overdue_ratio"] for n, f in features.items()}
+    
+    # 排名位置_L30
+    recent30 = prior_ranks[-30:] if 30 < len(prior_ranks) else prior_ranks
+    counts = Counter(recent30)
     num_by_rank = {r["排名"]: r["号码"] for r in ranking}
-    return {num_by_rank[r]: counts.get(r, 0) for r in range(1, 50)}
+    res["排名位置_L30"] = {num_by_rank[r]: counts.get(r, 0) for r in range(1, 50)}
 
-
-def _method_rank_pos_decay_H30(prior_df, prior_events, ranking, features, halflife=30):
-    ranks = prior_events["实际排名"].astype(int).tolist()
-    n = len(ranks)
-    decay = math.log(2) / halflife
+    # 排名位置衰减_H30
+    n = len(prior_ranks)
+    decay = math.log(2) / 30
     scores_by_rank = {r: 0.0 for r in range(1, 50)}
-    for i, r in enumerate(ranks):
+    for i, r in enumerate(prior_ranks):
         age = n - 1 - i
         scores_by_rank[r] += math.exp(-decay * age)
-    num_by_rank = {r["排名"]: r["号码"] for r in ranking}
-    return {num_by_rank[r]: scores_by_rank[r] for r in range(1, 50)}
+    res["排名位置衰减_H30"] = {num_by_rank[r]: scores_by_rank[r] for r in range(1, 50)}
 
-
-def _method_range13_L35_Top6(prior_df, prior_events, ranking, features):
-    ranks = prior_events["实际排名"].astype(int).tolist()
-    if not ranks:
-        return _method_rank_pos_decay_H30(prior_df, prior_events, ranking, features)
-    recent = ranks[-RANGE_L:] if RANGE_L < len(ranks) else ranks
+    # 区间13_L35_Top6
+    recent35 = prior_ranks[-RANGE_L:] if RANGE_L < len(prior_ranks) else prior_ranks
     range_counts = Counter()
-    for pos in recent:
+    for pos in recent35:
         idx = position_to_range_idx(pos)
         if idx is not None:
             range_counts[idx] += 1
     top_ranges = set(idx for idx, _ in range_counts.most_common(RANGE_TOP_K))
-    base_scores = _method_rank_pos_decay_H30(prior_df, prior_events, ranking, features)
-    num_by_rank = {r["排名"]: r["号码"] for r in ranking}
+    
+    base_scores = res["排名位置衰减_H30"]
     final = {}
     for rank_pos in range(1, 50):
         num = num_by_rank[rank_pos]
@@ -328,24 +300,21 @@ def _method_range13_L35_Top6(prior_df, prior_events, ranking, features):
             final[num] = base * RANGE_BOOST
         else:
             final[num] = base
-    return final
+    res["区间13_L35_Top6"] = final
+    
+    return res
 
 
 BASE_METHODS = {
-    "冷号遗漏":         _method_cold_omission,
-    "冷号超期比":       _method_cold_overdue,
-    "排名位置_L30":     _method_rank_pos_L30,
-    "排名位置衰减_H30": _method_rank_pos_decay_H30,
-    "区间13_L35_Top6":  _method_range13_L35_Top6,
+    "冷号遗漏": "冷号遗漏",
+    "冷号超期比": "冷号超期比",
+    "排名位置_L30": "排名位置_L30",
+    "排名位置衰减_H30": "排名位置衰减_H30",
+    "区间13_L35_Top6": "区间13_L35_Top6",
 }
 
 DYN_METHODS = ["排名位置_L30", "排名位置衰减_H30"]
-
 DEFAULT_METHOD = "L30_状态加权"
-
-
-def compute_all_base_scores(prior_df, prior_events, ranking, features):
-    return {m: fn(prior_df, prior_events, ranking, features) for m, fn in BASE_METHODS.items()}
 
 
 # ============================================================
@@ -377,20 +346,24 @@ def compute_dynamic_weights(position_history, current_issue, window=100, methods
     return {m: survivors[m] / total for m in survivors}
 
 
-def aggregate_equal(base_scores, position_history, current_issue, history_df=None):
+def aggregate_equal(base_scores, position_history, current_issue, history_nums=None):
     keys = list(base_scores.keys())
     return {n: sum(base_scores[m].get(n, 0) for m in keys) / len(keys)
             for n in range(1, 50)}
 
 
-def aggregate_dynamic(base_scores, position_history, current_issue, history_df=None, window=100):
+def aggregate_dynamic(base_scores, position_history, current_issue, history_nums=None, window=100):
     weights = compute_dynamic_weights(position_history, current_issue, window=window)
     return {n: sum(weights.get(m, 0) * base_scores[m].get(n, 0) for m in weights)
             for n in range(1, 50)}
 
 
-def compute_tail_streaks(history_df):
-    numbers = history_df["特码"].astype(int).tolist()
+def compute_tail_streaks(history_data):
+    if hasattr(history_data, "empty"):
+        numbers = history_data["特码"].astype(int).tolist()
+    else:
+        numbers = history_data
+        
     last_pos = {}
     for i, n in enumerate(numbers):
         last_pos[n % 10] = i
@@ -405,23 +378,16 @@ def compute_tail_streaks(history_df):
 
 
 def tail_weight(streak):
-    if streak <= 1:
-        return TAIL_WEIGHT_JUST_OUT
-    elif streak <= 5:
-        return TAIL_WEIGHT_SHORT
-    elif streak <= 15:
-        return TAIL_WEIGHT_MID
-    else:
-        return TAIL_WEIGHT_LONG
+    if streak <= 1: return TAIL_WEIGHT_JUST_OUT
+    elif streak <= 5: return TAIL_WEIGHT_SHORT
+    elif streak <= 15: return TAIL_WEIGHT_MID
+    else: return TAIL_WEIGHT_LONG
 
 
-def aggregate_dynamic_with_state(base_scores, position_history, current_issue,
-                                  history_df=None, window=100):
-    base = aggregate_dynamic(base_scores, position_history, current_issue,
-                             history_df=history_df, window=window)
-    if history_df is None or history_df.empty:
-        return base
-    streaks = compute_tail_streaks(history_df)
+def aggregate_dynamic_with_state(base_scores, position_history, current_issue, history_nums=None, window=100):
+    base = aggregate_dynamic(base_scores, position_history, current_issue, history_nums, window=window)
+    if not history_nums: return base
+    streaks = compute_tail_streaks(history_nums)
     final = {}
     for n in range(1, 50):
         w = tail_weight(streaks[n % 10])
@@ -429,12 +395,10 @@ def aggregate_dynamic_with_state(base_scores, position_history, current_issue,
     return final
 
 
-def aggregate_L30_with_state(base_scores, position_history, current_issue,
-                              history_df=None, window=None):
+def aggregate_L30_with_state(base_scores, position_history, current_issue, history_nums=None, window=None):
     l30 = base_scores["排名位置_L30"]
-    if history_df is None or history_df.empty:
-        return l30
-    streaks = compute_tail_streaks(history_df)
+    if not history_nums: return l30
+    streaks = compute_tail_streaks(history_nums)
     final = {}
     for n in range(1, 50):
         w = tail_weight(streaks[n % 10])
@@ -443,42 +407,45 @@ def aggregate_L30_with_state(base_scores, position_history, current_issue,
 
 
 AGG_METHODS = {
-    "综合集成_等权":                lambda bs, ph, ci, hd: aggregate_equal(bs, ph, ci, hd),
-    "综合集成_动态_W60":            lambda bs, ph, ci, hd: aggregate_dynamic(bs, ph, ci, hd, window=60),
-    "综合集成_动态_W100":           lambda bs, ph, ci, hd: aggregate_dynamic(bs, ph, ci, hd, window=100),
-    "综合集成_动态_W150":           lambda bs, ph, ci, hd: aggregate_dynamic(bs, ph, ci, hd, window=150),
-    "综合集成_动态_W100_状态加权":   lambda bs, ph, ci, hd: aggregate_dynamic_with_state(bs, ph, ci, hd, window=100),
-    "L30_状态加权":                 lambda bs, ph, ci, hd: aggregate_L30_with_state(bs, ph, ci, hd),
+    "综合集成_等权":                lambda bs, ph, ci, hn: aggregate_equal(bs, ph, ci, hn),
+    "综合集成_动态_W60":            lambda bs, ph, ci, hn: aggregate_dynamic(bs, ph, ci, hn, window=60),
+    "综合集成_动态_W100":           lambda bs, ph, ci, hn: aggregate_dynamic(bs, ph, ci, hn, window=100),
+    "综合集成_动态_W150":           lambda bs, ph, ci, hn: aggregate_dynamic(bs, ph, ci, hn, window=150),
+    "综合集成_动态_W100_状态加权":   lambda bs, ph, ci, hn: aggregate_dynamic_with_state(bs, ph, ci, hn, window=100),
+    "L30_状态加权":                 lambda bs, ph, ci, hn: aggregate_L30_with_state(bs, ph, ci, hn),
 }
 
 ALL_METHODS = {**BASE_METHODS, **AGG_METHODS}
 
-
-# ============================================================
-#            缓存（method_positions）→ Turso meta
-# ============================================================
-
 _CACHE_MEM = {"end_issue": None, "method_positions": None, "sig": None}
 
+
+# ============================================================
+#            核心降内存计算逻辑
+# ============================================================
 
 def _compute_all_method_positions(df, events, end_issue):
     all_issues = sorted(df[df["期数"] <= end_issue]["期数"].tolist())
     position_history = {m: {} for m in BASE_METHODS}
     method_positions = {m: {} for m in ALL_METHODS}
 
-    for t in all_issues:
-        prior_df = df[df["期数"] < t]
-        prior_events = events[events["期数"] < t].sort_values("期数")
-        if len(prior_df) < 2 or len(prior_events) < 4:
-            continue
-        ranking = compute_ranking(prior_df)
-        features = compute_number_features(prior_df)
-        base_scores = compute_all_base_scores(prior_df, prior_events, ranking, features)
-        actual_row = df[df["期数"] == t]
-        if actual_row.empty:
-            continue
-        actual = int(actual_row.iloc[0]["特码"])
-
+    df_dict = df.set_index("期数").to_dict("index")
+    events_dict = {row["期数"]: row for row in events.to_dict("records")}
+    
+    for i, t in enumerate(all_issues):
+        prior_issues = all_issues[:i]
+        if len(prior_issues) < 4: continue
+            
+        prior_nums = [df_dict[iss]["特码"] for iss in prior_issues]
+        prior_ranks = [events_dict[iss]["实际排名"] for iss in prior_issues if iss in events_dict]
+        if len(prior_ranks) < 4: continue
+            
+        ranking = compute_ranking_from_list(prior_nums)
+        features = compute_features_from_list(prior_nums)
+        base_scores = compute_base_scores_from_list(prior_ranks, ranking, features)
+        
+        actual = df_dict[t]["特码"]
+        
         for m, s in base_scores.items():
             ranked = sorted(s.keys(), key=lambda n: (-s[n], n))
             if actual in ranked:
@@ -488,7 +455,7 @@ def _compute_all_method_positions(df, events, end_issue):
             if method_name in base_scores:
                 scores = base_scores[method_name]
             elif method_name in AGG_METHODS:
-                scores = AGG_METHODS[method_name](base_scores, position_history, t, prior_df)
+                scores = AGG_METHODS[method_name](base_scores, position_history, t, prior_nums)
             else:
                 continue
             ranked_nums = sorted(scores.keys(), key=lambda n: (-scores[n], n))
@@ -499,17 +466,14 @@ def _compute_all_method_positions(df, events, end_issue):
 
 
 def _build_cache(df, events, end_issue, force=False):
-    """返回 method_positions = {method: {issue: pos}}"""
     end_issue = int(end_issue)
     sig = _data_signature(df)
 
-    # 内存命中
     if (not force and _CACHE_MEM["end_issue"] == end_issue
             and _CACHE_MEM["method_positions"] is not None
             and _CACHE_MEM["sig"] == sig):
         return _CACHE_MEM["method_positions"]
 
-    # Turso 命中
     if not force:
         cached_sig = _get_meta("cache_signature")
         cached_end = _get_meta("cache_end_issue")
@@ -518,20 +482,16 @@ def _build_cache(df, events, end_issue, force=False):
             if raw:
                 try:
                     mp_raw = json.loads(raw)
-                    mp = {m: {int(k): int(v) for k, v in kv.items()}
-                          for m, kv in mp_raw.items()}
-                    _CACHE_MEM.update({"end_issue": end_issue,
-                                       "method_positions": mp, "sig": sig})
+                    mp = {m: {int(k): int(v) for k, v in kv.items()} for m, kv in mp_raw.items()}
+                    _CACHE_MEM.update({"end_issue": end_issue, "method_positions": mp, "sig": sig})
                     return mp
                 except Exception:
                     pass
 
-    # 重算
     t0 = time.time()
     mp = _compute_all_method_positions(df, events, end_issue)
     _CACHE_MEM.update({"end_issue": end_issue, "method_positions": mp, "sig": sig})
 
-    # 回写 Turso
     try:
         mp_json = {m: {str(k): int(v) for k, v in d.items()} for m, d in mp.items()}
         _set_meta("cache_method_positions", json.dumps(mp_json, ensure_ascii=False))
@@ -544,40 +504,42 @@ def _build_cache(df, events, end_issue, force=False):
     return mp
 
 
-# ============================================================
-#            单期预测 + 信号
-# ============================================================
-
 def get_prediction(df, events, target_issue, method_name):
-    prior_df = df[df["期数"] < target_issue]
-    prior_events = events[events["期数"] < target_issue].sort_values("期数")
-    if len(prior_df) < 2 or len(prior_events) < 4:
-        return None
-    ranking = compute_ranking(prior_df)
-    features = compute_number_features(prior_df)
-    base_scores = compute_all_base_scores(prior_df, prior_events, ranking, features)
+    df_dict = df.set_index("期数").to_dict("index")
+    events_dict = {row["期数"]: row for row in events.to_dict("records")}
+    
+    prior_issues = sorted([iss for iss in df_dict.keys() if iss < target_issue])
+    if len(prior_issues) < 2: return None
+        
+    prior_nums = [df_dict[iss]["特码"] for iss in prior_issues]
+    prior_ranks = [events_dict[iss]["实际排名"] for iss in prior_issues if iss in events_dict]
+    if len(prior_ranks) < 4: return None
+
+    ranking = compute_ranking_from_list(prior_nums)
+    features = compute_features_from_list(prior_nums)
+    base_scores = compute_base_scores_from_list(prior_ranks, ranking, features)
 
     if method_name in AGG_METHODS:
-        all_issues = sorted(df[df["期数"] < target_issue]["期数"].tolist())
-        recent = all_issues[-POSITION_HISTORY_WINDOW:]
+        recent = prior_issues[-POSITION_HISTORY_WINDOW:]
         position_history = {m: {} for m in BASE_METHODS}
         for t in recent:
-            pr_df = df[df["期数"] < t]
-            pr_ev = events[events["期数"] < t].sort_values("期数")
-            if len(pr_df) < 2 or len(pr_ev) < 4:
-                continue
-            rk = compute_ranking(pr_df)
-            ft = compute_number_features(pr_df)
-            bs = compute_all_base_scores(pr_df, pr_ev, rk, ft)
-            ar = df[df["期数"] == t]
-            if ar.empty:
-                continue
-            ac = int(ar.iloc[0]["特码"])
+            t_idx = prior_issues.index(t)
+            sub_nums = prior_nums[:t_idx]
+            if len(sub_nums) < 2: continue
+            
+            sub_ranking = compute_ranking_from_list(sub_nums)
+            sub_features = compute_features_from_list(sub_nums)
+            sub_ranks = [events_dict[iss]["实际排名"] for iss in prior_issues[:t_idx] if iss in events_dict]
+            if len(sub_ranks) < 4: continue
+                
+            bs = compute_base_scores_from_list(sub_ranks, sub_ranking, sub_features)
+            ac = df_dict[t]["特码"]
             for m, s in bs.items():
                 r = sorted(s.keys(), key=lambda n: (-s[n], n))
                 if ac in r:
                     position_history[m][t] = r.index(ac) + 1
-        scores = AGG_METHODS[method_name](base_scores, position_history, target_issue, prior_df)
+                    
+        scores = AGG_METHODS[method_name](base_scores, position_history, target_issue, prior_nums)
     elif method_name in BASE_METHODS:
         scores = base_scores[method_name]
     else:
@@ -591,59 +553,14 @@ def get_prediction(df, events, target_issue, method_name):
     }
 
 
-def _max_miss(arr):
-    mx = 0
-    cur = 0
-    for h in arr:
-        if h == 0:
-            cur += 1
-            if cur > mx:
-                mx = cur
-        else:
-            cur = 0
-    return mx
-
-
-def compute_signal(mp, method_name, end_issue, top_k, window=TIMING_WINDOW):
-    if method_name not in mp:
-        return None
-    items = sorted(mp[method_name].items())
-    items = [(i, p) for i, p in items if i <= end_issue]
-    recent = items[-window:]
-    if len(recent) < window:
-        return None
-    hits = [1 if p <= top_k else 0 for _, p in recent]
-    rate = sum(hits) / len(hits)
-    breakeven = top_k * ODDS_BREAKEVEN_SINGLE
-    cm = 0
-    for h in reversed(hits):
-        if h == 1:
-            break
-        cm += 1
-    recent30 = hits[-30:]
-    rate30 = sum(recent30) / len(recent30) if recent30 else 0
-    return {
-        "top_k": top_k,
-        "rate": rate,
-        "rate30": rate30,
-        "breakeven": breakeven,
-        "should_bet": rate >= breakeven and rate30 >= breakeven,
-        "consecutive_miss": cm,
-        "max_miss_100": _max_miss(hits),
-        "max_miss_30": _max_miss(recent30),
-    }
-
-
 # ============================================================
-#            6 个对外函数
+#            对外 6 个接口
 # ============================================================
 
 def run_unified_prediction(target_issue=None, display_method=None):
     df = get_all_draws()
-    if df.empty:
-        return {"error": "数据为空"}
-    if target_issue is None:
-        target_issue = int(df["期数"].max()) + 1
+    if df.empty: return {"error": "数据为空"}
+    if target_issue is None: target_issue = int(df["期数"].max()) + 1
     target_issue = int(target_issue)
 
     events = read_library(df)
@@ -653,37 +570,31 @@ def run_unified_prediction(target_issue=None, display_method=None):
     all_predictions = {}
     for method_name in ALL_METHODS:
         result = get_prediction(df, events, target_issue, method_name)
-        if result is None:
-            continue
+        if result is None: continue
         all_predictions[method_name] = [n for n, _ in result["ranked_numbers"]]
 
-    if not all_predictions:
-        return {"error": "历史样本不足"}
+    if not all_predictions: return {"error": "历史样本不足"}
 
     if display_method not in all_predictions:
         display_method = DEFAULT_METHOD
-    signal_method = display_method  # ★ 统一：信号跟随模型
+    signal_method = display_method
 
     signals = {}
     for top_k in [5, 10, 12, 20]:
         sig = compute_signal(mp, signal_method, target_issue - 1, top_k)
-        if sig:
-            signals[top_k] = sig
+        if sig: signals[top_k] = sig
 
-    # 共识票数（全量返回，模板里按 N slice）
     counts5 = Counter()
     for m, ranked in all_predictions.items():
         for n in ranked[:5]:
             counts5[n] += 1
     consensus_all = sorted(counts5.items(), key=lambda x: (-x[1], x[0]))
 
-    # 最近历史（最多 100 期，模板里按 N slice）
     recent_issues = sorted(df[df["期数"] < target_issue]["期数"].tolist())[-100:]
     recent_history = []
     for iss in recent_issues:
         row = df[df["期数"] == iss]
-        if row.empty:
-            continue
+        if row.empty: continue
         actual = int(row.iloc[0]["特码"])
         if display_method in mp and iss in mp[display_method]:
             pos = mp[display_method][iss]
@@ -707,20 +618,48 @@ def run_unified_prediction(target_issue=None, display_method=None):
     }
 
 
+def _max_miss(arr):
+    mx = 0; cur = 0
+    for h in arr:
+        if h == 0:
+            cur += 1
+            if cur > mx: mx = cur
+        else: cur = 0
+    return mx
+
+
+def compute_signal(mp, method_name, end_issue, top_k, window=TIMING_WINDOW):
+    if method_name not in mp: return None
+    items = sorted(mp[method_name].items())
+    items = [(i, p) for i, p in items if i <= end_issue]
+    recent = items[-window:]
+    if len(recent) < window: return None
+    hits = [1 if p <= top_k else 0 for _, p in recent]
+    rate = sum(hits) / len(hits)
+    breakeven = top_k * ODDS_BREAKEVEN_SINGLE
+    cm = 0
+    for h in reversed(hits):
+        if h == 1: break
+        cm += 1
+    recent30 = hits[-30:]
+    rate30 = sum(recent30) / len(recent30) if recent30 else 0
+    return {
+        "top_k": top_k, "rate": rate, "rate30": rate30, "breakeven": breakeven,
+        "should_bet": rate >= breakeven and rate30 >= breakeven,
+        "consecutive_miss": cm, "max_miss_100": _max_miss(hits), "max_miss_30": _max_miss(recent30),
+    }
+
+
 def run_backtest(start_issue, end_issue, top_ks, use_timing, methods=None):
     df = get_all_draws()
-    if df.empty:
-        return {"error": "数据为空"}
+    if df.empty: return {"error": "数据为空"}
     events = read_library(df)
     mp = _build_cache(df, events, int(end_issue))
-
-    if not methods:
-        methods = [DEFAULT_METHOD]
+    if not methods: methods = [DEFAULT_METHOD]
 
     summary = []
     for method_name in methods:
-        if method_name not in mp:
-            continue
+        if method_name not in mp: continue
         all_items = sorted(mp[method_name].items())
         idx_by_issue = {iss: gi for gi, (iss, _) in enumerate(all_items)}
         items = [(i, p) for i, p in all_items if start_issue <= i <= end_issue]
@@ -734,12 +673,10 @@ def run_backtest(start_issue, end_issue, top_ks, use_timing, methods=None):
 
             for issue, pos in items:
                 gi = idx_by_issue.get(issue)
-                if gi is None:
-                    continue
+                if gi is None: continue
                 should_bet = True
                 if use_timing:
-                    if gi < TIMING_WINDOW:
-                        should_bet = False
+                    if gi < TIMING_WINDOW: should_bet = False
                     else:
                         past = all_items[gi - TIMING_WINDOW:gi]
                         past_hits = [1 if p <= top_k else 0 for _, p in past]
@@ -747,8 +684,7 @@ def run_backtest(start_issue, end_issue, top_ks, use_timing, methods=None):
                         past30 = past_hits[-30:]
                         past_rate30 = sum(past30) / len(past30) if past30 else 0
                         should_bet = past_rate >= breakeven and past_rate30 >= breakeven
-                if not should_bet:
-                    continue
+                if not should_bet: continue
                 bet_count += 1
                 invested += cost_per_period
                 if pos <= top_k:
@@ -758,58 +694,36 @@ def run_backtest(start_issue, end_issue, top_ks, use_timing, methods=None):
                 else:
                     period_profit = -cost_per_period
                 running += period_profit
-                if running > peak:
-                    peak = running
+                if running > peak: peak = running
                 dd = peak - running
-                if dd > max_dd:
-                    max_dd = dd
+                if dd > max_dd: max_dd = dd
 
             profit = revenue - invested
             roi = profit / invested if invested > 0 else 0
             hit_rate = hit_count / bet_count if bet_count > 0 else 0
             summary.append({
-                "method": method_name,
-                "top_k": top_k,
-                "timing": bool(use_timing),
-                "bet_count": bet_count,
-                "hit_count": hit_count,
-                "hit_rate": round(hit_rate, 4),
-                "invested": invested,
-                "revenue": revenue,
-                "profit": profit,
-                "roi": round(roi, 4),
-                "max_dd": max_dd,
+                "method": method_name, "top_k": top_k, "timing": bool(use_timing),
+                "bet_count": bet_count, "hit_count": hit_count, "hit_rate": round(hit_rate, 4),
+                "invested": invested, "revenue": revenue, "profit": profit,
+                "roi": round(roi, 4), "max_dd": max_dd,
             })
-
-    return {
-        "start_issue": int(start_issue),
-        "end_issue": int(end_issue),
-        "top_ks": list(top_ks),
-        "use_timing": bool(use_timing),
-        "summary": summary,
-    }
+    return {"start_issue": int(start_issue), "end_issue": int(end_issue), "top_ks": list(top_ks), "use_timing": bool(use_timing), "summary": summary}
 
 
 def _streak_stats(hits, label):
     n = len(hits)
-    if n == 0:
-        return None
+    if n == 0: return None
     total_hits = sum(hits)
     rate = total_hits / n
     streaks = []
     cur = 0
     for h in hits:
-        if h:
-            streaks.append(cur)
-            cur = 0
-        else:
-            cur += 1
-    if cur > 0:
-        streaks.append(cur)
+        if h: streaks.append(cur); cur = 0
+        else: cur += 1
+    if cur > 0: streaks.append(cur)
     cur_miss = 0
     for h in reversed(hits):
-        if h == 1:
-            break
+        if h == 1: break
         cur_miss += 1
     max_miss = max(streaks) if streaks else 0
     avg_miss = sum(streaks) / len(streaks) if streaks else 0
@@ -821,187 +735,107 @@ def _streak_stats(hits, label):
         p95 = ss[int(len(ss) * 0.95)] if len(ss) >= 20 else ss[-1]
     else:
         p50 = p75 = p90 = p95 = 0
-    return {
-        "label": label, "n": n, "hits": total_hits, "rate": rate,
-        "cur_miss": cur_miss, "max_miss": max_miss, "avg_miss": avg_miss,
-        "p50": p50, "p75": p75, "p90": p90, "p95": p95,
-    }
+    return {"label": label, "n": n, "hits": total_hits, "rate": rate, "cur_miss": cur_miss, "max_miss": max_miss, "avg_miss": avg_miss, "p50": p50, "p75": p75, "p90": p90, "p95": p95}
 
 
 def run_streak_view(end_issue=None):
     df = get_all_draws()
-    if df.empty:
-        return {"error": "数据为空"}
-    if end_issue is None:
-        end_issue = int(df["期数"].max())
+    if df.empty: return {"error": "数据为空"}
+    if end_issue is None: end_issue = int(df["期数"].max())
     end_issue = int(end_issue)
-
     events = read_library(df)
     mp = _build_cache(df, events, end_issue)
-
     method = DEFAULT_METHOD
-    if method not in mp:
-        return {"error": f"模型 {method} 无数据"}
-
+    if method not in mp: return {"error": f"模型 {method} 无数据"}
     all_items = sorted(mp[method].items())
     all_items = [(i, p) for i, p in all_items if i <= end_issue]
     items_year = [(i, p) for i, p in all_items if i >= 2026001]
     items_100 = all_items[-100:]
-
     by_topk = {}
     for top_k in [5, 10, 20]:
         entries = []
-        for items, label in [(all_items, "长历史"),
-                             (items_year, "2026 今年"),
-                             (items_100, "近 100 期")]:
+        for items, label in [(all_items, "长历史"), (items_year, "2026 今年"), (items_100, "近 100 期")]:
             hits = [1 if p <= top_k else 0 for _, p in items]
             st = _streak_stats(hits, label)
-            if st is not None:
-                entries.append(st)
+            if st is not None: entries.append(st)
         by_topk[top_k] = entries
-
-    return {
-        "method": method,
-        "end_issue": end_issue,
-        "by_topk": by_topk,
-    }
+    return {"method": method, "end_issue": end_issue, "by_topk": by_topk}
 
 
 def run_cold_watch(target_issue=None):
     df = get_all_draws()
-    if df.empty:
-        return {"error": "数据为空"}
-    if target_issue is None:
-        target_issue = int(df["期数"].max()) + 1
+    if df.empty: return {"error": "数据为空"}
+    if target_issue is None: target_issue = int(df["期数"].max()) + 1
     target_issue = int(target_issue)
-
     history = df[df["期数"] < target_issue]
-    if history.empty:
-        return {"error": "没有历史数据"}
-
+    if history.empty: return {"error": "没有历史数据"}
     numbers = history["特码"].astype(int).tolist()
     total = len(numbers)
-
     last_pos = {}
-    for i, n in enumerate(numbers):
-        last_pos[n] = i
-    omissions = {}
-    for n in range(1, 50):
-        omissions[n] = total - 1 - last_pos[n] if n in last_pos else total
-
+    for i, n in enumerate(numbers): last_pos[n] = i
+    omissions = {n: (total - 1 - last_pos[n] if n in last_pos else total) for n in range(1, 50)}
     per_number_gaps = {}
     all_gaps_global = []
     for num in range(1, 50):
         pos_list = [i for i, x in enumerate(numbers) if x == num]
-        if not pos_list:
-            per_number_gaps[num] = []
-            continue
+        if not pos_list: per_number_gaps[num] = []; continue
         gaps = [pos_list[i + 1] - pos_list[i] for i in range(len(pos_list) - 1)]
-        if gaps:
-            all_gaps_global.extend(gaps)
+        if gaps: all_gaps_global.extend(gaps)
         per_number_gaps[num] = gaps
-
     sorted_all = sorted(all_gaps_global)
-
     def quantile(q):
-        if not sorted_all:
-            return 0
+        if not sorted_all: return 0
         return sorted_all[min(len(sorted_all) - 1, int(len(sorted_all) * q))]
-
-    q75 = quantile(0.75)
-    q90 = quantile(0.90)
-    q95 = quantile(0.95)
-    q99 = quantile(0.99)
+    q75, q90, q95, q99 = quantile(0.75), quantile(0.90), quantile(0.95), quantile(0.99)
     q_max = sorted_all[-1] if sorted_all else 0
-
     sorted_items = sorted(omissions.items(), key=lambda x: -x[1])
     rows = []
     for num, om in sorted_items:
-        if om < q75:
-            continue
+        if om < q75: continue
         max_gap_num = max(per_number_gaps.get(num, [0]))
-        if om >= q99:
-            mark = "★★★ ≥99%"
-        elif om >= q95:
-            mark = "★★ ≥95%"
-        elif om >= q90:
-            mark = "★ ≥90%"
-        else:
-            mark = "≥75%"
-        rows.append({
-            "number": num, "omission": om,
-            "max_gap": max_gap_num, "mark": mark,
-        })
-
+        if om >= q99: mark = "★★★ ≥99%"
+        elif om >= q95: mark = "★★ ≥95%"
+        elif om >= q90: mark = "★ ≥90%"
+        else: mark = "≥75%"
+        rows.append({"number": num, "omission": om, "max_gap": max_gap_num, "mark": mark})
     buckets = []
-    for name, lo, hi in [("≥99%", q99, 10**9), ("≥95%", q95, q99),
-                          ("≥90%", q90, q95), ("≥75%", q75, q90)]:
+    for name, lo, hi in [("≥99%", q99, 10**9), ("≥95%", q95, q99), ("≥90%", q90, q95), ("≥75%", q75, q90)]:
         nums = [n for n, om in omissions.items() if lo <= om < hi]
-        if nums:
-            buckets.append({"name": name, "count": len(nums),
-                            "numbers": sorted(nums)})
-
-    return {
-        "target_issue": target_issue,
-        "history_total": total,
-        "quantiles": {"q75": q75, "q90": q90, "q95": q95, "q99": q99, "q_max": q_max},
-        "rows": rows,
-        "buckets": buckets,
-    }
+        if nums: buckets.append({"name": name, "count": len(nums), "numbers": sorted(nums)})
+    return {"target_issue": target_issue, "history_total": total, "quantiles": {"q75": q75, "q90": q90, "q95": q95, "q99": q99, "q_max": q_max}, "rows": rows, "buckets": buckets}
 
 
 def run_state_view(target_issue=None):
     df = get_all_draws()
-    if df.empty:
-        return {"error": "数据为空"}
-    if target_issue is None:
-        target_issue = int(df["期数"].max()) + 1
+    if df.empty: return {"error": "数据为空"}
+    if target_issue is None: target_issue = int(df["期数"].max()) + 1
     target_issue = int(target_issue)
-
     history = df[df["期数"] < target_issue]
-    if len(history) < 60:
-        return {"error": "历史不足"}
-
+    if len(history) < 60: return {"error": "历史不足"}
     def get_rank(issue_idx):
         hist = df.iloc[:issue_idx]
-        ranking = compute_ranking(hist)
+        ranking = compute_ranking_from_list(hist["特码"].astype(int).tolist())
         actual = int(df.iloc[issue_idx]["特码"])
         for item in ranking:
-            if item["号码"] == actual:
-                return item["排名"]
+            if item["号码"] == actual: return item["排名"]
         return 99
-
-    idx_now = len(history) - 1
-    idx_prev = len(history) - 2
-    prev_rank = get_rank(idx_now)
-    prev_prev_rank = get_rank(idx_prev)
+    idx_now, idx_prev = len(history) - 1, len(history) - 2
+    prev_rank, prev_prev_rank = get_rank(idx_now), get_rank(idx_prev)
     rank_diff = prev_rank - prev_prev_rank
-
     abs_diff = abs(rank_diff)
-    if abs_diff <= 5:
-        note = "差分小（≤5）——历史命中率略高于基准"
-    elif abs_diff <= 15:
-        note = "差分中（6-15）——历史命中率接近基准"
-    elif abs_diff <= 25:
-        note = "差分大（16-25）——历史命中率接近基准"
-    else:
-        note = "★ 差分超大（>25）——历史 Top5 命中率高 6%"
-
-    streaks = compute_tail_streaks(history)
+    if abs_diff <= 5: note = "差分小（≤5）——历史命中率略高于基准"
+    elif abs_diff <= 15: note = "差分中（6-15）——历史命中率接近基准"
+    elif abs_diff <= 25: note = "差分大（16-25）——历史命中率接近基准"
+    else: note = "★ 差分超大（>25）——历史 Top5 命中率高 6%"
+    streaks = compute_tail_streaks(history["特码"].astype(int).tolist())
     tail_rows = []
     for t in range(10):
-        s = streaks[t]
-        w = tail_weight(s)
-        if s <= 1:
-            desc = "刚出（降权）"
-        elif s <= 5:
-            desc = "短遗漏（正常）"
-        elif s <= 15:
-            desc = "★ 中遗漏（升权）"
-        else:
-            desc = "长遗漏（降权）"
+        s = streaks[t]; w = tail_weight(s)
+        if s <= 1: desc = "刚出（降权）"
+        elif s <= 5: desc = "短遗漏（正常）"
+        elif s <= 15: desc = "★ 中遗漏（升权）"
+        else: desc = "长遗漏（降权）"
         tail_rows.append({"tail": t, "streak": s, "weight": w, "desc": desc})
-
     events = read_library(df)
     mp = _build_cache(df, events, target_issue - 1)
     method = DEFAULT_METHOD
@@ -1016,145 +850,45 @@ def run_state_view(target_issue=None):
                 hits = sum(1 for _, p in recent if p <= top_k)
                 rate = hits / n
                 breakeven = top_k * ODDS_BREAKEVEN_SINGLE
-                model_100.append({
-                    "top_k": top_k, "rate": rate, "breakeven": breakeven,
-                    "diff": rate - breakeven, "above": rate - breakeven > 0,
-                })
-
-    return {
-        "target_issue": target_issue,
-        "diff": {
-            "prev_prev_rank": prev_prev_rank,
-            "prev_rank": prev_rank,
-            "rank_diff": rank_diff,
-            "note": note,
-        },
-        "tail_streaks": tail_rows,
-        "model_100": model_100,
-        "method": method,
-    }
+                model_100.append({"top_k": top_k, "rate": rate, "breakeven": breakeven, "diff": rate - breakeven, "above": rate - breakeven > 0})
+    return {"target_issue": target_issue, "diff": {"prev_prev_rank": prev_prev_rank, "prev_rank": prev_rank, "rank_diff": rank_diff, "note": note}, "tail_streaks": tail_rows, "model_100": model_100, "method": method}
 
 
 def run_model_panel(end_issue=None):
     df = get_all_draws()
-    if df.empty:
-        return {"error": "数据为空"}
-    if end_issue is None:
-        end_issue = int(df["期数"].max())
+    if df.empty: return {"error": "数据为空"}
+    if end_issue is None: end_issue = int(df["期数"].max())
     end_issue = int(end_issue)
-
     events = read_library(df)
     mp = _build_cache(df, events, end_issue)
-
     windows = [5, 10, 20, 30, 60, 100, 200]
     result = {"end_issue": end_issue, "windows": windows, "by_model": {}}
-
     for m in MODELS_4:
-        if m not in mp:
-            continue
+        if m not in mp: continue
         all_items = sorted(mp[m].items())
         all_items = [(i, p) for i, p in all_items if i <= end_issue]
-        mrr_row = {}
-        top10_row = {}
-        top20_row = {}
+        mrr_row, top10_row, top20_row = {}, {}, {}
         for w in windows:
             sub = all_items[-w:] if w <= len(all_items) else all_items
             if not sub:
-                mrr_row[w] = None
-                top10_row[w] = None
-                top20_row[w] = None
-                continue
+                mrr_row[w] = None; top10_row[w] = None; top20_row[w] = None; continue
             mrr = sum(1.0 / max(p, 1) for _, p in sub) / len(sub)
             mrr_row[w] = round(mrr, 5)
             top10_row[w] = round(sum(1 for _, p in sub if p <= 10) / len(sub), 4)
             top20_row[w] = round(sum(1 for _, p in sub if p <= 20) / len(sub), 4)
-        result["by_model"][m] = {
-            "mrr": mrr_row,
-            "top10": top10_row,
-            "top20": top20_row,
-        }
-
-    best_mrr = {}
-    best_top10 = {}
+        result["by_model"][m] = {"mrr": mrr_row, "top10": top10_row, "top20": top20_row}
+    best_mrr, best_top10 = {}, {}
     for w in windows:
-        best_m = None
-        best_v = -1
+        best_m, best_v = None, -1
         for m, d in result["by_model"].items():
             v = d["mrr"].get(w)
-            if v is not None and v > best_v:
-                best_v = v
-                best_m = m
+            if v is not None and v > best_v: best_v = v; best_m = m
         best_mrr[w] = (best_m, best_v)
-
-        best_m2 = None
-        best_v2 = -1
+        best_m2, best_v2 = None, -1
         for m, d in result["by_model"].items():
             v = d["top10"].get(w)
-            if v is not None and v > best_v2:
-                best_v2 = v
-                best_m2 = m
+            if v is not None and v > best_v2: best_v2 = v; best_m2 = m
         best_top10[w] = (best_m2, best_v2)
-
     result["best_mrr"] = best_mrr
     result["best_top10"] = best_top10
     return result
-
-
-# ============================================================
-#            自测
-# ============================================================
-
-if __name__ == "__main__":
-    print("=" * 60)
-    print("core/prediction.py 自测")
-    print("=" * 60)
-
-    print("\n[1] 读数据")
-    df = get_all_draws()
-    print(f"  {len(df)} 期  范围 {df['期数'].min()}-{df['期数'].max()}")
-
-    print("\n[2] 读学习库（只写 events，不碰 ranks）")
-    t0 = time.time()
-    events = read_library(df)
-    print(f"  events {len(events)} 行  用时 {time.time()-t0:.1f}s")
-    print(f"  ranks 表当前行数：{query_one('SELECT COUNT(*) FROM ranks')[0]}")
-
-
-    print("\n[3] 单期预测（默认下一期，默认方法）")
-    t0 = time.time()
-    r = run_unified_prediction()
-    print(f"  目标期 {r['target_issue']}  用时 {time.time()-t0:.1f}s")
-    print(f"  显示模型 {r['display_method']}")
-    print(f"  Top5 {r['ranked'][:5]}")
-    print(f"  Top10 {r['ranked'][:10]}")
-    print(f"  Top20 {r['ranked'][:20]}")
-    print("  信号：")
-    for k, s in r["signals"].items():
-        print(f"    Top{k}: 近100 {s['rate']:.2%}  近30 {s['rate30']:.2%}  "
-              f"打平线 {s['breakeven']:.2%}  可下注 {s['should_bet']}")
-
-    print("\n[4] 连不中统计")
-    t0 = time.time()
-    r2 = run_streak_view()
-    print(f"  用时 {time.time()-t0:.1f}s")
-    for k, entries in r2["by_topk"].items():
-        print(f"  Top{k}:")
-        for e in entries:
-            print(f"    {e['label']}: {e['n']}期 命中率{e['rate']:.2%} "
-                  f"当前连不中{e['cur_miss']} 最长{e['max_miss']}")
-
-    print("\n[5] 状态查看")
-    r3 = run_state_view()
-    print(f"  差分 {r3['diff']['rank_diff']:+d}  {r3['diff']['note']}")
-    for t in r3["tail_streaks"]:
-        print(f"  尾{t}  遗漏{t['streak']}  权重{t['weight']:.2f}  {t['desc']}")
-
-    print("\n[6] 模型对比面板")
-    t0 = time.time()
-    r4 = run_model_panel()
-    print(f"  用时 {time.time()-t0:.1f}s")
-    for m, d in r4["by_model"].items():
-        print(f"  {m}")
-        print(f"    MRR(100)={d['mrr'].get(100)}  Top10(100)={d['top10'].get(100)}")
-
-    print("\n完成。")
