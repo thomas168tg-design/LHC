@@ -6,50 +6,138 @@
     <div class="text-muted small">耗时 {{ r.wall }}s</div>
 </div>
 
-<div class="row g-3">
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header bg-dark text-white">上期差分</div>
-            <div class="card-body">
-                <p>上上期排名: <strong>{{ r.diff.prev_prev_rank }}</strong></p>
-                <p>上期排名: <strong>{{ r.diff.prev_rank }}</strong></p>
-                <p>差分值: <strong class="fs-4 {% if r.diff.rank_diff > 25 %}text-danger{% endif %}">{{ '+' if r.diff.rank_diff > 0 }}{{ r.diff.rank_diff }}</strong></p>
-                <div class="alert alert-warning mb-0">{{ r.diff.note }}</div>
+<!-- 仪表盘式的上期验证 (加回来了) -->
+<div class="card mb-3 shadow-sm border-0">
+    <div class="card-body bg-light rounded">
+        <h5 class="text-center mb-4">上期尾数权重验证</h5>
+        <div class="d-flex justify-content-around align-items-center">
+            <div class="text-center">
+                <div class="text-muted small mb-1">上上期开奖</div>
+                <div class="fs-3 fw-bold text-secondary">{{ r.diff.prev_prev_num }}</div>
+                <div class="mt-2 badge bg-dark">{{ r.diff.prev_prev_tail }}尾</div>
+                <div class="small mt-1">{{ r.diff.prev_prev_w_desc }} <br> 权重 {{ r.diff.prev_prev_weight }}</div>
             </div>
-        </div>
-    </div>
-    
-    <div class="col-md-6">
-        <div class="card h-100">
-            <div class="card-header bg-dark text-white">尾数当前状态</div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 text-center">
-                    <thead><tr><th>尾数</th><th>遗漏</th><th>权重</th><th>说明</th></tr></thead>
-                    <tbody>
-                        {% for t in r.tail_streaks %}
-                        <tr>
-                            <td class="fw-bold">{{ t.tail }}尾</td>
-                            <td>{{ t.streak }}</td>
-                            <td class="fw-bold {% if t.weight > 1 %}text-success{% elif t.weight < 1 %}text-danger{% endif %}">{{ t.weight }}</td>
-                            <td class="small">{{ t.desc }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            
+            <div class="text-muted fs-2">➜</div>
+            
+            <div class="text-center">
+                <div class="text-muted small mb-1">上期实际开奖</div>
+                <div class="fs-3 fw-bold {% if r.diff.is_correct %}text-success{% else %}text-danger{% endif %}">{{ r.diff.prev_num }}</div>
+                <div class="mt-2 badge {% if r.diff.is_correct %}bg-success{% else %}bg-danger{% endif %}">{{ r.diff.prev_tail }}尾</div>
+                <div class="small mt-1">{{ r.diff.prev_w_desc }} <br> 权重 {{ r.diff.prev_weight }}</div>
+            </div>
+
+            <div class="text-muted fs-2">➜</div>
+            
+            <div class="text-center">
+                <div class="text-muted small mb-1">权重判定</div>
+                {% if r.diff.is_correct %}
+                    <div class="display-6 text-success">✔</div>
+                    <div class="fw-bold text-success mt-2">判断正确 (命中)</div>
+                    <div class="small text-muted">符合升权/正常逻辑</div>
+                {% else %}
+                    <div class="display-6 text-danger">✘</div>
+                    <div class="fw-bold text-danger mt-2">判断错误 (爆冷)</div>
+                    <div class="small text-muted">降权尾数强行开出</div>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
 
-<div class="card mt-3">
+<!-- 当前尾数遗漏与权重（标准表格排版） -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-header bg-dark text-white fw-bold">当前尾数遗漏与权重（用于下一期参考）</div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover text-center mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>尾数</th>
+                    <th>当前遗漏</th>
+                    <th>权重值</th>
+                    <th>权重说明</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in r.tail_streaks %}
+                <tr>
+                    <td class="fw-bold">{{ t.tail }}尾</td>
+                    <td>{{ t.streak }}</td>
+                    <td>
+                        <span class="badge {% if t.weight > 1 %}bg-success{% elif t.weight < 1 %}bg-danger{% else %}bg-secondary{% endif %}" style="width:50px;">
+                            {{ t.weight }}
+                        </span>
+                    </td>
+                    <td class="text-muted small align-middle">{{ t.desc }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 历史验证区 -->
+<div class="card mb-3">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <div class="fw-bold">近 {{ r.recent_n }} 期尾数权重与开奖验证（准确率: <span class="text-warning">{{ '%.2f'|format(r.accuracy*100) }}%</span>）</div>
+        <form method="get" class="d-flex align-items-center mb-0">
+            <label class="me-2 small text-light">选择验证期数:</label>
+            <select name="recent_n" class="form-select form-select-sm" onchange="this.form.submit()" style="width: 100px;">
+                {% for n in [10, 20, 30, 40, 50, 60, 90, 100, 120, 200, 365] %}
+                    <option value="{{ n }}" {% if n == r.recent_n %}selected{% endif %}>近 {{ n }} 期</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+            <table class="table table-sm table-striped text-center mb-0">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th>期数</th><th>开奖号</th><th>尾数</th>
+                        <th>当期排名</th><th>上期排名</th><th>差分</th>
+                        <th>当期权重</th><th>权重说明</th><th>判定结果</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for x in r.recent_list %}
+                    <tr>
+                        <td>{{ x.issue }}</td>
+                        <td><span class="num-ball">{{ x.actual }}</span></td>
+                        <td class="fw-bold">{{ x.tail }}尾</td>
+                        <td>{{ x.rank_now }}</td>
+                        <td>{{ x.rank_prev }}</td>
+                        <td class="{% if x.diff < -25 or x.diff > 25 %}text-danger fw-bold{% endif %}">
+                            {{ '+' if x.diff > 0 }}{{ x.diff }}
+                        </td>
+                        <td class="fw-bold {% if x.weight > 1 %}text-success{% elif x.weight < 1 %}text-secondary{% endif %}">
+                            {{ x.weight }}
+                        </td>
+                        <td>{{ x.w_desc }}</td>
+                        <td>
+                            {% if x.is_correct %}
+                                <span class="badge bg-success">判断命中</span>
+                            {% else %}
+                                <span class="badge bg-danger">判断爆冷</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
     <div class="card-header bg-dark text-white">近 100 期模型表现 ({{ r.method }})</div>
     <div class="card-body">
         <div class="row text-center">
             {% for m in r.model_100 %}
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="border rounded p-3">
-                    <h5>Top{{ m.top_k }}</h5>
-                    <h3 class="{% if m.above %}text-success{% else %}text-danger{% endif %}">{{ '%.2f'|format(m.rate*100) }}%</h3>
+                    <h6>Top{{ m.top_k }}</h6>
+                    <h4 class="{% if m.above %}text-success{% else %}text-danger{% endif %}">{{ '%.2f'|format(m.rate*100) }}%</h4>
                     <div class="small text-muted">打平线 {{ '%.2f'|format(m.breakeven*100) }}%</div>
                 </div>
             </div>

@@ -3,10 +3,16 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h3 class="mb-0">区域逐期盲测</h3>
-    {% if r %}<div class="text-muted small">耗时 {{ r.wall }}s</div>{% endif %}
+    <div>
+        {% if r %}
+        <button class="btn btn-sm btn-outline-dark" onclick="window.print()">📄 打印PDF</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="copyTable()">📋 复制表格</button>
+        <span class="text-muted small ms-2">耗时 {{ r.wall }}s</span>
+        {% endif %}
+    </div>
 </div>
 
-<form class="row g-2 mb-4" method="post">
+<form class="row g-2 mb-4 no-print" method="post">
     <div class="col-auto">
         <label class="form-label small mb-0">起始期</label>
         <input type="number" name="start_issue" class="form-control" value="{{ r.start_issue if r else min_issue }}">
@@ -15,30 +21,42 @@
         <label class="form-label small mb-0">结束期</label>
         <input type="number" name="end_issue" class="form-control" value="{{ r.end_issue if r else max_issue }}">
     </div>
+    
+    <!-- 模型多选 -->
     <div class="col-auto">
-        <label class="form-label small mb-0 d-block">档位</label>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="checkbox" name="top_ks" value="5" id="k5" {% if not r or 5 in r.top_ks %}checked{% endif %}>
-            <label class="form-check-label" for="k5">Top5</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="checkbox" name="top_ks" value="10" id="k10" {% if not r or 10 in r.top_ks %}checked{% endif %}>
-            <label class="form-check-label" for="k10">Top10</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="checkbox" name="top_ks" value="12" id="k12" {% if not r or 12 in r.top_ks %}checked{% endif %}>
-            <label class="form-check-label" for="k12">Top12</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="checkbox" name="top_ks" value="20" id="k20" {% if not r or 20 in r.top_ks %}checked{% endif %}>
-            <label class="form-check-label" for="k20">Top20</label>
+        <label class="form-label small mb-0 d-block">选择模型</label>
+        <div class="dropdown">
+            <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">选择模型</button>
+            <div class="dropdown-menu dropdown-menu-checkbox p-2">
+                {% for m in all_methods %}
+                <label>
+                    <input type="checkbox" name="methods" value="{{ m }}" {% if r and m in r.summary|map(attribute='method')|list %}checked{% elif not r and m == 'L30_状态加权' %}checked{% endif %}> {{ m }}
+                </label>
+                {% endfor %}
+            </div>
         </div>
     </div>
+
+    <!-- 号码组多选 -->
+    <div class="col-auto">
+        <label class="form-label small mb-0 d-block">号码组</label>
+        <div class="dropdown">
+            <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">号码组</button>
+            <div class="dropdown-menu dropdown-menu-checkbox p-2">
+                {% for k in [5, 8, 10, 12, 15, 18, 20, 25, 30, 35, 40] %}
+                <label>
+                    <input type="checkbox" name="top_ks" value="{{ k }}" {% if r and k in r.top_ks %}checked{% elif not r and k in [5,10,12,20] %}checked{% endif %}> Top{{ k }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
     <div class="col-auto">
         <label class="form-label small mb-0 d-block">择时</label>
         <div class="form-check form-switch mt-1">
             <input class="form-check-input" type="checkbox" name="use_timing" value="1" id="use_timing" {% if r and r.use_timing %}checked{% endif %}>
-            <label class="form-check-label" for="use_timing">近100期打平线过滤</label>
+            <label class="form-check-label" for="use_timing">近100期打平线</label>
         </div>
     </div>
     <div class="col-auto align-self-end">
@@ -47,7 +65,7 @@
 </form>
 
 {% if r %}
-<div class="card">
+<div class="card" id="resultTable">
     <div class="card-body p-0">
         <table class="table table-hover table-sm mb-0 text-center align-middle">
             <thead class="table-dark">
@@ -57,9 +75,17 @@
                 </tr>
             </thead>
             <tbody>
+                {% set ns = namespace(current_model="") %}
                 {% for row in r.summary %}
+                    {% if row.method != ns.current_model %}
+                        {% set ns.current_model = row.method %}
+                        <!-- 当模型变化时，切换背景色：用淡蓝和淡黄交替 -->
+                        <tr class="bg-primary bg-opacity-10 fw-bold">
+                            <td colspan="9" class="text-start">{{ row.method }}</td>
+                        </tr>
+                    {% endif %}
                 <tr>
-                    <td class="small">{{ row.method }}</td>
+                    <td></td> <!-- 留空，因为上面有分类行了 -->
                     <td>Top{{ row.top_k }}</td>
                     <td>{% if row.timing %}是{% else %}否{% endif %}</td>
                     <td>{{ row.bet_count }}</td>
@@ -80,5 +106,17 @@
         </table>
     </div>
 </div>
+
+<script>
+function copyTable() {
+    let table = document.getElementById("resultTable");
+    let range = document.createRange();
+    range.selectNode(table);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    document.execCommand("copy");
+    alert("表格已复制到剪贴板，可直接粘贴到 Excel/微信");
+}
+</script>
 {% endif %}
 {% endblock %}

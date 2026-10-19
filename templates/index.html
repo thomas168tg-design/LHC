@@ -1,57 +1,61 @@
 {% extends "base.html" %}
 {% block title %}首页{% endblock %}
 {% block content %}
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="card bg-gradient bg-dark text-white p-4">
+            <h3 class="mb-0">MCSX3V9 智能预测系统</h3>
+            <p class="text-white-50 mb-0 mt-2">基于新澳门六合彩历史数据，多模型动态集成与尾数状态加权分析</p>
+        </div>
+    </div>
+</div>
 
-<h3 class="mb-4">系统概览</h3>
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card text-bg-primary h-100">
+            <div class="card-body text-center py-4">
+                <div class="text-uppercase small mb-1">总期数</div>
+                <div class="display-4 fw-bold">{{ stats.total }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-success h-100">
+            <div class="card-body text-center py-4">
+                <div class="text-uppercase small mb-1">起始期</div>
+                <div class="display-4 fw-bold">{{ stats.min_issue or '—' }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-warning h-100">
+            <div class="card-body text-center py-4">
+                <div class="text-uppercase small mb-1">最新期</div>
+                <div class="display-4 fw-bold">{{ stats.max_issue or '—' }}</div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="row g-3">
+    {% set navs = [
+        ('draws_list', '📋 数据管理', '查看历史、录入开奖、一键抓取最新期', 'outline-dark'),
+        ('predict', '🎯 单期预测', '生成下一期 49 码优先级排序及多模型共识', 'outline-primary'),
+        ('backtest', '🧪 区域盲测', '自定义时间区间与模型，回测盈利与命中率', 'outline-warning'),
+        ('panel', '📊 模型面板', '横向对比 4 大核心模型在不同窗口的表现', 'outline-success'),
+        ('streak', '📉 连不中统计', '分析当前模型最长连黑与分布概率', 'outline-danger'),
+        ('cold', '❄️ 冷号监控', '监控超长遗漏号码，注意极冷回补', 'outline-info'),
+        ('state', '📡 状态查看', '查看尾数权重变化与上期排名差分', 'outline-secondary')
+    ] %}
+    {% for endpoint, title, desc, color in navs %}
     <div class="col-md-4">
-        <div class="card text-bg-primary">
+        <a href="{{ url_for(endpoint) }}" class="card h-100 text-decoration-none text-dark border-0 shadow-sm hover-shadow">
             <div class="card-body">
-                <div class="text-uppercase small">总期数</div>
-                <div class="display-6">{{ stats.total }}</div>
+                <h5 class="card-title fw-bold text-{{ color.replace('outline-', '') }}">{{ title }}</h5>
+                <p class="card-text text-muted small">{{ desc }}</p>
             </div>
-        </div>
+        </a>
     </div>
-    <div class="col-md-4">
-        <div class="card text-bg-success">
-            <div class="card-body">
-                <div class="text-uppercase small">起始期</div>
-                <div class="display-6">{{ stats.min_issue or '—' }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card text-bg-warning">
-            <div class="card-body">
-                <div class="text-uppercase small">最新期</div>
-                <div class="display-6">{{ stats.max_issue or '—' }}</div>
-            </div>
-        </div>
-    </div>
+    {% endfor %}
 </div>
-
-<div class="row g-3 mt-4">
-    <div class="col-md-3">
-        <a href="{{ url_for('draws_list') }}" class="btn btn-outline-dark w-100 py-4">
-            📋 数据管理
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('predict') }}" class="btn btn-outline-primary w-100 py-4">
-            🎯 单期预测
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('panel') }}" class="btn btn-outline-success w-100 py-4">
-            📊 模型面板
-        </a>
-    </div>
-    <div class="col-md-3">
-        <a href="{{ url_for('backtest') }}" class="btn btn-outline-warning w-100 py-4">
-            🧪 区域盲测
-        </a>
-    </div>
-</div>
-
 {% endblock %}

@@ -44,24 +44,33 @@ def _from_cell(c):
 
 
 def _post(statements):
+    import time
     payload = {
         "requests": [
             {"type": "execute", "stmt": {"sql": s, "args": [_to_arg(a) for a in (args or [])]}}
             for s, args in statements
         ] + [{"type": "close"}]
     }
-    r = requests.post(
-        _http_url(),
-        headers={
-            "Authorization": f"Bearer {TURSO_TOKEN}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=60,
-    )
-    r.raise_for_status()
-    data = r.json()
-    return data.get("results", [])
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            r = requests.post(
+                _http_url(),
+                headers={
+                    "Authorization": f"Bearer {TURSO_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=120,  # 超时从 60 秒增加到 120 秒
+            )
+            r.raise_for_status()
+            data = r.json()
+            return data.get("results", [])
+        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as e:
+            if attempt == max_retries - 1:
+                raise e  # 如果 3 次都失败了，才真正报错
+            time.sleep(2)  # 失败后等 2 秒重试
 
 
 def execute(sql, params=None):

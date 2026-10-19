@@ -1,40 +1,45 @@
 # -*- coding: utf-8 -*-
 """
 app.py — Flask 主程序
-
-路由总览：
-    /login                登录
-    /logout               退出
-    /                     首页
-    /draws                开奖数据列表
-    /draws/update         从 macaujc 更新（POST）
-    /draws/add            手动录入（POST）
-    /predict              单期预测
-    /backtest             区域盲测（待开发）
-    /streak               连不中统计（待开发）
-    /cold                 冷号监控（待开发）
-    /state                状态查看（待开发）
-    /panel                模型对比面板（待开发）
-    /insurance            保本递进注（待开发）
 """
 
 import os
 import time
+import psutil
 from functools import wraps
 
 from flask import (Flask, render_template, request, redirect,
-                   url_for, session, flash)
+                   url_for, session, flash, jsonify)
 
 from config import LOGIN_PASSWORD, SECRET_KEY
 from core import draws, prediction
-
+from database import init_tables
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
+# 确保启动时建表
+with app.app_context():
+    try:
+        init_tables()
+    except Exception as e:
+        print(f"初始化数据库失败: {e}")
+
 
 # ============================================================
-#            登录
+#            系统接口
+# ============================================================
+
+@app.route("/api/memory")
+def api_memory():
+    """实时内存监控接口"""
+    process = psutil.Process(os.getpid())
+    mem_mb = process.memory_info().rss / 1024 / 1024
+    return jsonify({"mem": round(mem_mb, 1)})
+
+
+# ============================================================
+#            登录鉴权
 # ============================================================
 
 def login_required(f):
@@ -139,7 +144,7 @@ def draws_add():
 
 
 # ============================================================
-#            预测
+#            单期预测
 # ============================================================
 
 @app.route("/predict", methods=["GET", "POST"])
@@ -186,13 +191,11 @@ def predict():
     r["recent_n"] = recent_n
     return render_template("predict.html", r=r, default_issue=None)
 
-# ============================================================
-#            其他（待开发）
-# ============================================================
 
 # ============================================================
 #            区域盲测
 # ============================================================
+
 @app.route("/backtest", methods=["GET", "POST"])
 @login_required
 def backtest():
@@ -200,35 +203,57 @@ def backtest():
         df = draws.get_all_draws()
         max_issue = int(df["期数"].max()) if not df.empty else 0
         min_issue = int(df["期数"].min()) if not df.empty else 0
-        return render_template("backtest.html", r=None, min_issue=min_issue, max_issue=max_issue)
+        return render_template("backtest.html", r=None, min_issue=min_issue, max_issue=max_issue, all_methods=prediction.ALL_METHODS.keys())
 
     start_issue = int(request.form.get("start_issue", 2023001))
     end_issue = int(request.form.get("end_issue", 2026289))
     use_timing = request.form.get("use_timing") == "1"
     
+    # 接收号码组
     top_ks_str = request.form.getlist("top_ks")
-    top_ks = [int(k) for k in top_ks_str] if top_ks_str else [5, 10, 20]
+    top_ks = [int(k) for k in top_ks_str] if top_ks_str else [5, 10, 12, 20]
+    
+    # 接收模型选择
+    selected_methods = request.form.getlist("methods")
+    if not selected_methods:
+        selected_methods = [prediction.DEFAULT_METHOD]
 
     t0 = time.time()
-    r = prediction.run_backtest(start_issue, end_issue, top_ks, use_timing)
+    r = prediction.run_backtest(start_issue, end_issue, top_ks, use_timing, methods=selected_methods)
     r["wall"] = round(time.time() - t0, 1)
     
-    return render_template("backtest.html", r=r, min_issue=start_issue, max_issue=end_issue)
+    return render_template("backtest.html", r=r, min_issue=start_issue, max_issue=end_issue, all_methods=prediction.ALL_METHODS.keys())
+
 
 # ============================================================
 #            连不中统计
 # ============================================================
-@app.route("/streak")
+
+@app.route("/streak", methods=["GET", "POST"])
 @login_required
 def streak():
+    methods = request.values.getlist("methods")
+    if not methods: methods = [prediction.DEFAULT_METHOD]
+    
+    top_ks_str = request.values.getlist("top_ks")
+    top_ks = [int(k) for k in top_ks_str] if top_ks_str else [5, 10, 12, 20]
+    
+    windows = request.values.getlist("windows")
+    if not windows: windows = ["all"]
+    
     t0 = time.time()
-    r = prediction.run_streak_view()
+    r = prediction.run_streak_view(methods=methods, top_ks=top_ks, windows=windows)
     r["wall"] = round(time.time() - t0, 1)
+    r["selected_methods"] = methods
+    r["selected_topks"] = top_ks
+    r["selected_windows"] = windows
+    r["all_methods"] = prediction.ALL_METHODS.keys()
     return render_template("streak.html", r=r)
 
 # ============================================================
 #            冷号监控
 # ============================================================
+
 @app.route("/cold")
 @login_required
 def cold():
@@ -237,27 +262,46 @@ def cold():
     r["wall"] = round(time.time() - t0, 1)
     return render_template("cold.html", r=r)
 
+
 # ============================================================
 #            状态查看
 # ============================================================
+
 @app.route("/state")
 @login_required
 def state():
+    recent_raw = request.args.get("recent_n", "10")
+    try:
+        recent_n = int(recent_raw)
+    except Exception:
+        recent_n = 10
+        
     t0 = time.time()
-    r = prediction.run_state_view()
+    r = prediction.run_state_view(recent_n=recent_n)
     r["wall"] = round(time.time() - t0, 1)
     return render_template("state.html", r=r)
+
 
 # ============================================================
 #            模型对比面板
 # ============================================================
-@app.route("/panel")
+
+@app.route("/panel", methods=["GET", "POST"])
 @login_required
 def panel():
+    top_ks_str = request.values.getlist("top_ks")
+    top_ks = [int(k) for k in top_ks_str] if top_ks_str else [5, 10, 12, 20]
+    
     t0 = time.time()
-    r = prediction.run_model_panel()
+    r = prediction.run_model_panel(end_issue=None, top_ks=top_ks)
     r["wall"] = round(time.time() - t0, 1)
+    r["selected_topks"] = top_ks
     return render_template("panel.html", r=r)
+
+
+# ============================================================
+#            保本递进注（占位）
+# ============================================================
 
 @app.route("/insurance")
 @login_required
@@ -275,4 +319,4 @@ if __name__ == "__main__":
     print(f"Flask 启动中... debug={debug}")
     print("浏览器打开：http://127.0.0.1:5000")
     print("=" * 60)
-    app.run(host="0.0.0.0", port=5000, debug=debug)
+    app.run(host="0.0.0.0", port=5000, debug=debug, threaded=True)

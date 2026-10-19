@@ -710,6 +710,69 @@ def run_backtest(start_issue, end_issue, top_ks, use_timing, methods=None):
     return {"start_issue": int(start_issue), "end_issue": int(end_issue), "top_ks": list(top_ks), "use_timing": bool(use_timing), "summary": summary}
 
 
+def run_streak_view(end_issue=None, methods=None, top_ks=[5, 10, 12, 20], windows=["all"]):
+    df = get_all_draws()
+    if df.empty: return {"error": "数据为空"}
+    if end_issue is None: end_issue = int(df["期数"].max())
+    end_issue = int(end_issue)
+    events = read_library(df)
+    mp = _build_cache(df, events, end_issue)
+    
+    if not methods: methods = [DEFAULT_METHOD]
+    
+    # 历史窗口定义
+    def get_sub_items(all_items, w_key):
+        if w_key == "all": return all_items
+        if w_key == "2026": return [(i, p) for i, p in all_items if i >= 2026001]
+        if w_key == "100": return all_items[-100:]
+        if w_key == "30": return all_items[-30:]
+        # 支持年份季度比如 2026Q1
+        if len(w_key) == 6 and w_key.endswith("Q1"): 
+            year = int(w_key[:4])
+            return [(i, p) for i, p in all_items if year*1000+1 <= i <= year*1000+90]
+        if len(w_key) == 6 and w_key.endswith("Q2"):
+            year = int(w_key[:4])
+            return [(i, p) for i, p in all_items if year*1000+91 <= i <= year*1000+180]
+        if len(w_key) == 6 and w_key.endswith("Q3"):
+            year = int(w_key[:4])
+            return [(i, p) for i, p in all_items if year*1000+181 <= i <= year*1000+270]
+        if len(w_key) == 6 and w_key.endswith("Q4"):
+            year = int(w_key[:4])
+            return [(i, p) for i, p in all_items if year*1000+271 <= i <= year*1000+366]
+        return all_items
+
+    results = []
+    for method in methods:
+        if method not in mp: continue
+        all_items = sorted(mp[method].items())
+        all_items = [(i, p) for i, p in all_items if i <= end_issue]
+        
+        for w_key in windows:
+            sub_items = get_sub_items(all_items, w_key)
+            if not sub_items: continue
+            
+            for top_k in top_ks:
+                hits = [1 if p <= top_k else 0 for _, p in sub_items]
+                st = _streak_stats(hits, w_key)
+                if st is not None:
+                    # 统计连开(0)和连黑(>0)
+                    streaks_dict = Counter()
+                    cur = 0
+                    for h in hits:
+                        if h == 0: cur += 1
+                        else:
+                            if cur >= 0: streaks_dict[cur] += 1
+                            cur = 0
+                    if cur >= 0: streaks_dict[cur] += 1
+                    
+                    st["streak_counts"] = dict(sorted(streaks_dict.items()))
+                    st["method"] = method
+                    st["window"] = w_key
+                    st["top_k"] = top_k
+                    results.append(st)
+                    
+    return {"end_issue": end_issue, "results": results}
+
 def _streak_stats(hits, label):
     n = len(hits)
     if n == 0: return None
@@ -730,36 +793,11 @@ def _streak_stats(hits, label):
     if streaks:
         ss = sorted(streaks)
         p50 = ss[len(ss) // 2]
-        p75 = ss[int(len(ss) * 0.75)] if len(ss) >= 4 else ss[-1]
         p90 = ss[int(len(ss) * 0.90)] if len(ss) >= 10 else ss[-1]
         p95 = ss[int(len(ss) * 0.95)] if len(ss) >= 20 else ss[-1]
     else:
-        p50 = p75 = p90 = p95 = 0
-    return {"label": label, "n": n, "hits": total_hits, "rate": rate, "cur_miss": cur_miss, "max_miss": max_miss, "avg_miss": avg_miss, "p50": p50, "p75": p75, "p90": p90, "p95": p95}
-
-
-def run_streak_view(end_issue=None):
-    df = get_all_draws()
-    if df.empty: return {"error": "数据为空"}
-    if end_issue is None: end_issue = int(df["期数"].max())
-    end_issue = int(end_issue)
-    events = read_library(df)
-    mp = _build_cache(df, events, end_issue)
-    method = DEFAULT_METHOD
-    if method not in mp: return {"error": f"模型 {method} 无数据"}
-    all_items = sorted(mp[method].items())
-    all_items = [(i, p) for i, p in all_items if i <= end_issue]
-    items_year = [(i, p) for i, p in all_items if i >= 2026001]
-    items_100 = all_items[-100:]
-    by_topk = {}
-    for top_k in [5, 10, 20]:
-        entries = []
-        for items, label in [(all_items, "长历史"), (items_year, "2026 今年"), (items_100, "近 100 期")]:
-            hits = [1 if p <= top_k else 0 for _, p in items]
-            st = _streak_stats(hits, label)
-            if st is not None: entries.append(st)
-        by_topk[top_k] = entries
-    return {"method": method, "end_issue": end_issue, "by_topk": by_topk}
+        p50 = p90 = p95 = 0
+    return {"label": label, "n": n, "hits": total_hits, "rate": rate, "cur_miss": cur_miss, "max_miss": max_miss, "avg_miss": avg_miss, "p50": p50, "p90": p90, "p95": p95}
 
 
 def run_cold_watch(target_issue=None):
@@ -805,38 +843,94 @@ def run_cold_watch(target_issue=None):
     return {"target_issue": target_issue, "history_total": total, "quantiles": {"q75": q75, "q90": q90, "q95": q95, "q99": q99, "q_max": q_max}, "rows": rows, "buckets": buckets}
 
 
-def run_state_view(target_issue=None):
+def run_state_view(target_issue=None, recent_n=10):
     df = get_all_draws()
     if df.empty: return {"error": "数据为空"}
     if target_issue is None: target_issue = int(df["期数"].max()) + 1
     target_issue = int(target_issue)
-    history = df[df["期数"] < target_issue]
-    if len(history) < 60: return {"error": "历史不足"}
-    def get_rank(issue_idx):
-        hist = df.iloc[:issue_idx]
-        ranking = compute_ranking_from_list(hist["特码"].astype(int).tolist())
-        actual = int(df.iloc[issue_idx]["特码"])
-        for item in ranking:
-            if item["号码"] == actual: return item["排名"]
-        return 99
-    idx_now, idx_prev = len(history) - 1, len(history) - 2
-    prev_rank, prev_prev_rank = get_rank(idx_now), get_rank(idx_prev)
+    
+    events = read_library(df)
+    events_dict = {row["期数"]: row for row in events.to_dict("records")}
+    
+    # 极速优化：直接转成 list 操作
+    all_issues = df[df["期数"] < target_issue]["期数"].tolist()
+    all_specials = df[df["期数"] < target_issue]["特码"].tolist()
+    if len(all_issues) < 60: return {"error": "历史不足"}
+    
+    def get_rank_and_num(issue):
+        if issue in events_dict:
+            return events_dict[issue]["实际排名"], events_dict[issue]["实际特码"]
+        return 99, 0
+
+    idx_now, idx_prev = len(all_issues) - 1, len(all_issues) - 2
+    issue_now, issue_prev = all_issues[idx_now], all_issues[idx_prev]
+    
+    prev_rank, actual_num = get_rank_and_num(issue_now)
+    prev_prev_rank, prev_num = get_rank_and_num(issue_prev)
     rank_diff = prev_rank - prev_prev_rank
-    abs_diff = abs(rank_diff)
-    if abs_diff <= 5: note = "差分小（≤5）——历史命中率略高于基准"
-    elif abs_diff <= 15: note = "差分中（6-15）——历史命中率接近基准"
-    elif abs_diff <= 25: note = "差分大（16-25）——历史命中率接近基准"
-    else: note = "★ 差分超大（>25）——历史 Top5 命中率高 6%"
-    streaks = compute_tail_streaks(history["特码"].astype(int).tolist())
+    
+    # 上上期权重详情
+    hist_prev_prev_nums = all_specials[:idx_prev]
+    streaks_prev_prev = compute_tail_streaks(hist_prev_prev_nums)
+    prev_prev_tail = prev_num % 10
+    prev_prev_weight = tail_weight(streaks_prev_prev[prev_prev_tail])
+    
+    # 上期权重详情
+    hist_prev_nums = all_specials[:idx_now]
+    streaks_prev = compute_tail_streaks(hist_prev_nums)
+    prev_tail = actual_num % 10
+    prev_weight = tail_weight(streaks_prev[prev_tail])
+    
+    def w_desc_fn(w):
+        if w > 1.0: return "升权(中遗漏)"
+        elif w < 1.0: return "降权(冷门)"
+        else: return "正常"
+        
+    is_correct = prev_weight >= 1.0
+
+    # 近 N 期历史验证 (O(N) 纯原生操作，瞬间完成)
+    recent_list = []
+    hits = 0
+    start_i = max(1, len(all_issues) - recent_n)
+    for i in range(start_i, len(all_issues)):
+        issue = all_issues[i]
+        prev_issue = all_issues[i-1]
+        
+        sub_nums = all_specials[:i]
+        streaks = compute_tail_streaks(sub_nums)
+        
+        rank_now, actual = get_rank_and_num(issue)
+        rank_prev, _ = get_rank_and_num(prev_issue)
+        diff = rank_now - rank_prev
+        tail = actual % 10
+        weight = tail_weight(streaks[tail])
+        
+        w_desc = w_desc_fn(weight)
+        if weight >= 1.0:
+            hits += 1
+            is_c = True
+        else:
+            is_c = False
+            
+        recent_list.append({
+            "issue": issue, "actual": actual, "tail": tail,
+            "rank_now": rank_now, "rank_prev": rank_prev, "diff": diff,
+            "weight": weight, "w_desc": w_desc, "is_correct": is_c
+        })
+    recent_list.reverse()
+    accuracy = hits / len(recent_list) if recent_list else 0
+
+    # 当前遗漏
+    current_streaks = compute_tail_streaks(all_specials)
     tail_rows = []
     for t in range(10):
-        s = streaks[t]; w = tail_weight(s)
+        s = current_streaks[t]; w = tail_weight(s)
         if s <= 1: desc = "刚出（降权）"
         elif s <= 5: desc = "短遗漏（正常）"
         elif s <= 15: desc = "★ 中遗漏（升权）"
         else: desc = "长遗漏（降权）"
         tail_rows.append({"tail": t, "streak": s, "weight": w, "desc": desc})
-    events = read_library(df)
+        
     mp = _build_cache(df, events, target_issue - 1)
     method = DEFAULT_METHOD
     model_100 = []
@@ -846,15 +940,32 @@ def run_state_view(target_issue=None):
         recent = items[-100:]
         n = len(recent)
         if n > 0:
-            for top_k in [5, 10, 20]:
-                hits = sum(1 for _, p in recent if p <= top_k)
-                rate = hits / n
+            for top_k in [5, 10, 12, 20]:
+                r_hits = sum(1 for _, p in recent if p <= top_k)
+                rate = r_hits / n
                 breakeven = top_k * ODDS_BREAKEVEN_SINGLE
                 model_100.append({"top_k": top_k, "rate": rate, "breakeven": breakeven, "diff": rate - breakeven, "above": rate - breakeven > 0})
-    return {"target_issue": target_issue, "diff": {"prev_prev_rank": prev_prev_rank, "prev_rank": prev_rank, "rank_diff": rank_diff, "note": note}, "tail_streaks": tail_rows, "model_100": model_100, "method": method}
+                
+    return {
+        "target_issue": target_issue, 
+        "recent_n": recent_n,
+        "accuracy": accuracy,
+        "diff": {
+            "prev_prev_rank": prev_prev_rank, "prev_prev_num": prev_num, "prev_prev_tail": prev_prev_tail, 
+            "prev_prev_weight": prev_prev_weight, "prev_prev_w_desc": w_desc_fn(prev_prev_weight),
+            "prev_rank": prev_rank, "prev_num": actual_num, "prev_tail": prev_tail, 
+            "prev_weight": prev_weight, "prev_w_desc": w_desc_fn(prev_weight),
+            "is_correct": is_correct,
+            "rank_diff": rank_diff
+        }, 
+        "tail_streaks": tail_rows, 
+        "model_100": model_100, 
+        "method": method,
+        "recent_list": recent_list
+    }
 
 
-def run_model_panel(end_issue=None):
+def run_model_panel(end_issue=None, top_ks=[5, 10, 12, 20]):
     df = get_all_draws()
     if df.empty: return {"error": "数据为空"}
     if end_issue is None: end_issue = int(df["期数"].max())
@@ -862,33 +973,39 @@ def run_model_panel(end_issue=None):
     events = read_library(df)
     mp = _build_cache(df, events, end_issue)
     windows = [5, 10, 20, 30, 60, 100, 200]
-    result = {"end_issue": end_issue, "windows": windows, "by_model": {}}
+    result = {"end_issue": end_issue, "windows": windows, "by_model": {}, "top_ks": top_ks}
+    
     for m in MODELS_4:
         if m not in mp: continue
         all_items = sorted(mp[m].items())
         all_items = [(i, p) for i, p in all_items if i <= end_issue]
-        mrr_row, top10_row, top20_row = {}, {}, {}
+        
+        model_data = {"mrr": {}}
+        for k in top_ks: model_data[f"top{k}"] = {}
+        
         for w in windows:
             sub = all_items[-w:] if w <= len(all_items) else all_items
             if not sub:
-                mrr_row[w] = None; top10_row[w] = None; top20_row[w] = None; continue
-            mrr = sum(1.0 / max(p, 1) for _, p in sub) / len(sub)
-            mrr_row[w] = round(mrr, 5)
-            top10_row[w] = round(sum(1 for _, p in sub if p <= 10) / len(sub), 4)
-            top20_row[w] = round(sum(1 for _, p in sub if p <= 20) / len(sub), 4)
-        result["by_model"][m] = {"mrr": mrr_row, "top10": top10_row, "top20": top20_row}
-    best_mrr, best_top10 = {}, {}
-    for w in windows:
-        best_m, best_v = None, -1
-        for m, d in result["by_model"].items():
-            v = d["mrr"].get(w)
-            if v is not None and v > best_v: best_v = v; best_m = m
-        best_mrr[w] = (best_m, best_v)
-        best_m2, best_v2 = None, -1
-        for m, d in result["by_model"].items():
-            v = d["top10"].get(w)
-            if v is not None and v > best_v2: best_v2 = v; best_m2 = m
-        best_top10[w] = (best_m2, best_v2)
-    result["best_mrr"] = best_mrr
-    result["best_top10"] = best_top10
+                model_data["mrr"][w] = None
+                for k in top_ks: model_data[f"top{k}"][w] = None
+                continue
+            
+            model_data["mrr"][w] = round(sum(1.0 / max(p, 1) for _, p in sub) / len(sub), 5)
+            for k in top_ks:
+                model_data[f"top{k}"][w] = round(sum(1 for _, p in sub if p <= k) / len(sub), 4)
+                
+        result["by_model"][m] = model_data
+
+    # 计算每个窗口的最优
+    result["best"] = {}
+    for key in ["mrr"] + [f"top{k}" for k in top_ks]:
+        result["best"][key] = {}
+        for w in windows:
+            best_m, best_v = None, -1
+            for m, d in result["by_model"].items():
+                v = d[key].get(w)
+                if v is not None and v > best_v:
+                    best_v = v
+                    best_m = m
+            result["best"][key][w] = (best_m, best_v)
     return result
