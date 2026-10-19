@@ -13,7 +13,8 @@ from flask import (Flask, render_template, request, redirect,
 
 from config import LOGIN_PASSWORD, SECRET_KEY
 from core import draws, prediction
-from database import init_tables
+from core import draws, prediction, insurance
+from database import init_tables, query_one
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -303,11 +304,86 @@ def panel():
 #            保本递进注（占位）
 # ============================================================
 
-@app.route("/insurance")
+@app.route("/insurance", methods=["GET", "POST"])
 @login_required
-def insurance():
-    return render_template("coming_soon.html", name="保本递进注")
+def insurance_view():
+    plans = insurance.get_plans()
+    plan_name_from_req = request.values.get("plan_name")
+    selected_plan = plan_name_from_req if plan_name_from_req else (plans[0]["name"] if plans else "")
 
+    df = draws.get_all_draws()
+    max_issue = int(df["期数"].max()) if not df.empty else 0
+    result = None
+    
+    # 一键核算
+    if request.method == "POST" and "calc" in request.form:
+        model_name = request.form["model_name"]
+        target_issue = int(request.form["target_issue"])
+        
+        # 接收手动覆盖参数
+        miss_str = request.form.get("manual_miss", "").strip()
+        loss_str = request.form.get("manual_loss", "").strip()
+        manual_miss = int(miss_str) if miss_str else None
+        manual_loss = float(loss_str) if loss_str else None
+        
+        result = insurance.calc_issue(selected_plan, model_name, target_issue, manual_miss, manual_loss)
+        
+    # 保存战报
+    if request.method == "POST" and "save_record" in request.form:
+        target_issue = int(request.form["target_issue"])
+        plan_name = request.form["plan_name"]
+        
+        custom_amts = request.form.getlist("custom_amts")
+        actual_cost = sum([float(x) if x else 0 for x in custom_amts])
+        
+        actual_num = int(request.form["actual_num"]) if request.form.get("actual_num") else None
+        bet_numbers = [int(x) for x in request.form["bet_numbers"].split(",")]
+        
+        revenue = 0
+        profit = -actual_cost
+        is_hit = False
+        
+        if actual_num and actual_num in bet_numbers:
+            hit_idx = bet_numbers.index(actual_num)
+            hit_amt = float(custom_amts[hit_idx]) if custom_amts[hit_idx] else 0
+            revenue = 46 * hit_amt
+            profit = revenue - actual_cost
+            is_hit = True
+
+        insurance.save_auto_record(target_issue, plan_name, actual_cost, revenue, profit, is_hit)
+        flash(f"{target_issue} 期战报已保存！", "success")
+        return redirect(url_for("insurance_view", plan_name=plan_name))
+
+    # 新建方案
+    if request.method == "POST" and "save_plan" in request.form:
+        name = request.form["new_plan_name"]
+        strategy = request.form["new_strategy"]
+        target_profit = int(request.form.get("new_target", 100))
+        
+        amts_str = request.form["amts_list"].replace("，", ",")
+        raw_amts = [int(x.strip()) for x in amts_str.split(",") if x.strip()]
+        
+        config = {"strategy": strategy, "target_profit": target_profit, "amts": raw_amts}
+        insurance.save_plan(name, config)
+        flash("方案已保存！", "success")
+        return redirect(url_for("insurance_view", plan_name=name))
+
+    # 删除操作
+    if request.method == "POST" and "delete_plan" in request.form:
+        insurance.delete_plan(request.form["delete_name"])
+        return redirect(url_for("insurance_view"))
+    if request.method == "POST" and "delete_record" in request.form:
+        insurance.delete_record(int(request.form["record_id"]))
+        return redirect(url_for("insurance_view", plan_name=selected_plan))
+
+    # 盘面与记录
+    row = query_one("SELECT SUM(cost), SUM(profit) FROM betting_records WHERE plan_name = ?", [selected_plan])
+    pool = {"cost": row[0] or 0, "profit": row[1] or 0, "loss": -(row[1] or 0) if (row[1] or 0) < 0 else 0}
+    records = insurance.get_records(selected_plan)
+    
+    return render_template("insurance.html", plans=plans, selected_plan=selected_plan,
+                           result=result, pool=pool, records=records, max_issue=max_issue,
+                           models=prediction.ALL_METHODS.keys())
 
 # ============================================================
 #            本地测试入口

@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}资金管理 / 递进注{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">资金管理 / 递进注</h3>
+    <div class="text-muted small">当前方案：<strong class="text-primary">{{ selected_plan }}</strong></div>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-8">
+        <div class="card mb-3 border-primary shadow-sm">
+            <div class="card-header bg-primary text-white fw-bold">第一步：核算指定期数</div>
+            <div class="card-body">
+                {% if not plans %}
+                    <div class="alert alert-warning">请先在右侧【方案库管理】中新建一个方案。</div>
+                {% else %}
+                <form method="post" class="row g-2 mb-4">
+                    <input type="hidden" name="calc" value="1">
+                    <input type="hidden" name="plan_name" value="{{ selected_plan }}">
+                    
+                    <div class="col-md-4">
+                        <label class="small text-muted">目标期数 (支持历史期)</label>
+                        <input type="number" name="target_issue" class="form-control" value="{{ max_issue + 1 }}" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="small text-muted">选择预测模型</label>
+                        <select name="model_name" class="form-select">
+                            {% for m in models %}
+                            <option value="{{ m }}" {% if m == 'L30_状态加权' %}selected{% endif %}>{{ m }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <button class="btn btn-primary w-100 fw-bold">一键核算</button>
+                    </div>
+
+                    <!-- 覆盖参数区 -->
+                    <div class="col-12 mt-2 bg-light border rounded p-2">
+                        <div class="small text-muted mb-1">
+                            系统自动计算依据：连黑 <strong>{{ result.auto_miss if result else '?' }}</strong> 期，预估亏损 <strong>{{ result.auto_loss if result else '?' }}</strong> 元。
+                            <br>如果你中间断过没下注，可以在下方手动填上真实情况，点核算覆盖。
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <input type="number" name="manual_miss" class="form-control form-control-sm" placeholder="指定实际连黑期数" value="{{ result.manual_miss if result and result.manual_miss is not none else '' }}">
+                            </div>
+                            <div class="col-md-6">
+                                <input type="number" step="0.01" name="manual_loss" class="form-control form-control-sm" placeholder="指定实际历史亏损金额" value="{{ result.manual_loss if result and result.manual_loss is not none else '' }}">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+
+                {% if result %}
+                    {% if result.error %}
+                        <div class="alert alert-danger">{{ result.error }}</div>
+                    {% else %}
+                        <div class="alert alert-success py-2 d-flex justify-content-between mb-3">
+                            <span>期数: <strong>{{ result.target_issue }}</strong></span>
+                            <span>实际计算连黑: <strong class="text-danger">{{ result.current_miss }}</strong> 期</span>
+                            <span>实际计算亏额: <strong class="text-danger">{{ result.history_loss }}</strong> 元</span>
+                            <span>目标利: <strong>{{ result.target_profit }}</strong> 元</span>
+                        </div>
+                        
+                        <form method="post">
+                            <input type="hidden" name="save_record" value="1">
+                            <input type="hidden" name="target_issue" value="{{ result.target_issue }}">
+                            <input type="hidden" name="plan_name" value="{{ result.plan_name }}">
+                            <input type="hidden" name="actual_num" value="{{ result.actual_num if result.actual_num else '' }}">
+                            <input type="hidden" name="bet_numbers" value="{{ result.bet_numbers|join(',') }}">
+                            
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm table-bordered text-center align-middle">
+                                    <thead class="table-light">
+                                        <tr><th>码位</th><th>号码</th><th>建议下注</th><th>命中收入</th><th style="width: 130px;">实际下注额</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for num in result.bet_numbers %}
+                                        {% set idx = loop.index0 %}
+                                        <tr class="{% if result.actual_num == num %}table-success fw-bold{% endif %}">
+                                            <td>第 {{ loop.index }} 码</td>
+                                            <td><span class="badge bg-primary fs-6">{{ num }}</span></td>
+                                            <td class="text-muted">{{ result.final_amts[idx] }} 元</td>
+                                            <td>{{ 46 * result.final_amts[idx] }} 元</td>
+                                            <td><input type="number" name="custom_amts" class="form-control form-control-sm text-center fw-bold text-primary" value="{{ result.final_amts[idx] }}" required></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {% if result.actual_num %}
+                                <div class="alert {% if result.is_hit %}alert-success{% else %}alert-secondary{% endif %}">
+                                    <h6>该期已开奖：特码 <strong class="fs-4">{{ result.actual_num }}</strong></h6>
+                                    <p class="mb-0">系统判断：{% if result.is_hit %}<strong>命中第 {{ result.hit_idx + 1 }} 码</strong>。{% else %}<strong>未命中</strong>。{% endif %}</p>
+                                </div>
+                                <button class="btn btn-success w-100 fw-bold mb-2">确认无误，写入战报</button>
+                            {% else %}
+                                <div class="alert alert-warning">该期尚未开奖，建议总投入 <strong>{{ result.total_cost }}</strong> 元。</div>
+                                <button class="btn btn-outline-primary w-100 fw-bold mb-2">保存预测记录</button>
+                            {% endif %}
+                        </form>
+                    {% endif %}
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card shadow-sm mt-4">
+            <div class="card-header bg-dark text-white fw-bold">【{{ selected_plan }}】 最近战报</div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm table-striped text-center mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr><th>期数</th><th>成本</th><th>收入</th><th>盈亏</th><th>结果</th><th>操作</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for r in records %}
+                            <tr>
+                                <td>{{ r.issue }}</td>
+                                <td>{{ r.cost }}</td>
+                                <td>{{ r.revenue }}</td>
+                                <td class="fw-bold {% if r.profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ r.profit }}</td>
+                                <td>{% if r.hit %}<span class="badge bg-success">中</span>{% else %}<span class="badge bg-secondary">黑</span>{% endif %}</td>
+                                <td>
+                                    <form method="post" class="m-0" onsubmit="return confirm('确认删除？');">
+                                        <input type="hidden" name="delete_record" value="1">
+                                        <input type="hidden" name="record_id" value="{{ r.id }}">
+                                        <button class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:12px;">删除</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：资金盘面 & 方案管理 -->
+    <div class="col-md-4">
+        <div class="card mb-3 bg-success bg-opacity-10 border-success shadow-sm">
+            <div class="card-header bg-success text-white fw-bold">【{{ selected_plan }}】 资金盘面</div>
+            <div class="card-body text-center">
+                <div class="mb-2">累计投入: <strong>{{ pool.cost }}</strong> 元</div>
+                <div class="mb-2">累计盈亏: <strong class="{% if pool.profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ pool.profit }}</strong> 元</div>
+                <div class="border-top pt-2 mt-2">
+                    <div class="small text-muted">当前亏损额 (自动代入)</div>
+                    <div class="fs-4 fw-bold text-danger">{{ pool.loss }} 元</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white fw-bold">切换 / 管理方案</div>
+            <div class="card-body">
+                <ul class="list-group mb-3">
+                    {% for p in plans %}
+                    <a href="{{ url_for('insurance_view', plan_name=p.name) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {% if p.name == selected_plan %}active{% endif %}">
+                        <div>
+                            <strong>{{ p.name }}</strong>
+                            <div class="small {% if p.name == selected_plan %}text-white-50{% else %}text-muted{% endif %} mt-1">{{ p.config.amts|length }} 码 | {{ p.config.strategy }}</div>
+                        </div>
+                        {% if p.name == selected_plan %}<span class="badge bg-light text-primary">当前</span>{% endif %}
+                    </a>
+                    {% endfor %}
+                </ul>
+
+                {% if selected_plan %}
+                <form method="post" onsubmit="return confirm('确定删除【{{ selected_plan }}】方案？');" class="mb-3">
+                    <input type="hidden" name="delete_plan" value="1">
+                    <input type="hidden" name="delete_name" value="{{ selected_plan }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger w-100">删除当前方案</button>
+                </form>
+                {% endif %}
+                
+                <h6 class="border-top pt-3 text-muted">新建 / 覆盖方案</h6>
+                <form method="post">
+                    <input type="hidden" name="save_plan" value="1">
+                    <div class="mb-2"><input type="text" name="new_plan_name" class="form-control form-control-sm" placeholder="新方案名称" required></div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <select name="new_strategy" class="form-select form-select-sm" onchange="toggleTarget(this)">
+                                <option value="保本递进注">保本递进注</option>
+                                <option value="平注">平注</option>
+                            </select>
+                        </div>
+                        <div class="col-6 target-input">
+                            <input type="number" name="new_target" class="form-control form-control-sm" placeholder="目标利润" value="100">
+                        </div>
+                    </div>
+                    <div class="mb-2"><input type="text" name="amts_list" class="form-control form-control-sm" placeholder="金额: 15,15,15,15,15,10,10" required></div>
+                    <button class="btn btn-sm btn-outline-primary w-100 mt-2">保存方案配置</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleTarget(sel) {
+    let input = sel.closest('form').querySelector('.target-input');
+    input.style.display = sel.value === '平注' ? 'none' : 'block';
+}
+</script>
+{% endblock %}

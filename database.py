@@ -150,6 +150,22 @@ def init_tables():
             max_miss_loss REAL,
             created_at TEXT
         )""",
+        """CREATE TABLE IF NOT EXISTS betting_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            config_json TEXT,
+            created_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS betting_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue INTEGER UNIQUE,
+            plan_name TEXT,
+            cost REAL,
+            revenue REAL,
+            profit REAL,
+            is_hit INTEGER,
+            created_at TEXT
+        )"""
     ]
     _post([(s, []) for s in statements])
 
