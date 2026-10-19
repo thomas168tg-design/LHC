@@ -27,17 +27,25 @@ def delete_plan(name):
 
 # ---------------- 战报记录管理 ----------------
 def get_records(plan_name):
-    _, rows = query("SELECT id, issue, cost, revenue, profit, is_hit FROM betting_records WHERE plan_name = ? ORDER BY issue DESC LIMIT 50", [plan_name])
-    return [{"id": r[0], "issue": r[1], "cost": r[2], "revenue": r[3], "profit": r[4], "hit": bool(r[5])} for r in rows]
+    _, rows = query("SELECT id, issue, cost, revenue, profit, is_hit, bet_numbers, bet_amts FROM betting_records WHERE plan_name = ? ORDER BY issue DESC LIMIT 50", [plan_name])
+    result = []
+    for r in rows:
+        result.append({
+            "id": r[0], "issue": r[1], "cost": r[2], "revenue": r[3], 
+            "profit": r[4], "hit": bool(r[5]), 
+            "bet_numbers": r[6] if r[6] else "", 
+            "bet_amts": r[7] if r[7] else ""
+        })
+    return result
 
-def save_auto_record(issue, plan_name, cost, revenue, profit, is_hit):
+def save_auto_record(issue, plan_name, cost, revenue, profit, is_hit, bet_numbers="", bet_amts=""):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     execute(
-        "INSERT INTO betting_records (issue, plan_name, cost, revenue, profit, is_hit, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "INSERT INTO betting_records (issue, plan_name, cost, revenue, profit, is_hit, created_at, bet_numbers, bet_amts) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(issue, plan_name) DO UPDATE SET "
-        "cost=excluded.cost, revenue=excluded.revenue, profit=excluded.profit, is_hit=excluded.is_hit, created_at=excluded.created_at",
-        [issue, plan_name, cost, revenue, profit, 1 if is_hit else 0, now]
+        "cost=excluded.cost, revenue=excluded.revenue, profit=excluded.profit, is_hit=excluded.is_hit, created_at=excluded.created_at, bet_numbers=excluded.bet_numbers, bet_amts=excluded.bet_amts",
+        [issue, plan_name, cost, revenue, profit, 1 if is_hit else 0, now, bet_numbers, bet_amts]
     )
 
 # ---------------- 核心自动计算 ----------------
@@ -132,3 +140,5 @@ def calc_issue(plan_name, model_name, target_issue, manual_miss=None, manual_los
         "actual_num": actual_num, "hit_idx": hit_idx,
         "revenue": revenue, "profit": profit, "is_hit": is_hit
     }
+def delete_record(record_id):
+    execute("DELETE FROM betting_records WHERE id = ?", [record_id])

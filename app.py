@@ -14,7 +14,7 @@ from flask import (Flask, render_template, request, redirect,
 from config import LOGIN_PASSWORD, SECRET_KEY
 from core import draws, prediction
 from core import draws, prediction, insurance
-from database import init_tables, query_one
+from database import init_tables, query_one, execute
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -315,20 +315,15 @@ def insurance_view():
     max_issue = int(df["期数"].max()) if not df.empty else 0
     result = None
     
-    # 一键核算
     if request.method == "POST" and "calc" in request.form:
         model_name = request.form["model_name"]
         target_issue = int(request.form["target_issue"])
-        
-        # 接收手动覆盖参数
         miss_str = request.form.get("manual_miss", "").strip()
         loss_str = request.form.get("manual_loss", "").strip()
         manual_miss = int(miss_str) if miss_str else None
         manual_loss = float(loss_str) if loss_str else None
-        
         result = insurance.calc_issue(selected_plan, model_name, target_issue, manual_miss, manual_loss)
         
-    # 保存战报
     if request.method == "POST" and "save_record" in request.form:
         target_issue = int(request.form["target_issue"])
         plan_name = request.form["plan_name"]
@@ -337,7 +332,8 @@ def insurance_view():
         actual_cost = sum([float(x) if x else 0 for x in custom_amts])
         
         actual_num = int(request.form["actual_num"]) if request.form.get("actual_num") else None
-        bet_numbers = [int(x) for x in request.form["bet_numbers"].split(",")]
+        bet_numbers_str = request.form.get("bet_numbers", "")
+        bet_numbers = [int(x) for x in bet_numbers_str.split(",")] if bet_numbers_str else []
         
         revenue = 0
         profit = -actual_cost
@@ -350,33 +346,39 @@ def insurance_view():
             profit = revenue - actual_cost
             is_hit = True
 
-        insurance.save_auto_record(target_issue, plan_name, actual_cost, revenue, profit, is_hit)
+        amts_str = ",".join(custom_amts)
+        insurance.save_auto_record(target_issue, plan_name, actual_cost, revenue, profit, is_hit, bet_numbers_str, amts_str)
         flash(f"{target_issue} 期战报已保存！", "success")
         return redirect(url_for("insurance_view", plan_name=plan_name))
 
-    # 新建方案
     if request.method == "POST" and "save_plan" in request.form:
         name = request.form["new_plan_name"]
         strategy = request.form["new_strategy"]
         target_profit = int(request.form.get("new_target", 100))
-        
         amts_str = request.form["amts_list"].replace("，", ",")
         raw_amts = [int(x.strip()) for x in amts_str.split(",") if x.strip()]
-        
         config = {"strategy": strategy, "target_profit": target_profit, "amts": raw_amts}
         insurance.save_plan(name, config)
         flash("方案已保存！", "success")
         return redirect(url_for("insurance_view", plan_name=name))
 
-    # 删除操作
     if request.method == "POST" and "delete_plan" in request.form:
-        insurance.delete_plan(request.form["delete_name"])
+        try:
+            execute("DELETE FROM betting_plans WHERE name = ?", [request.form["delete_name"]])
+            flash("方案已删除", "info")
+        except Exception as e:
+            flash(f"删除失败：{type(e).__name__}", "danger")
         return redirect(url_for("insurance_view"))
+        
     if request.method == "POST" and "delete_record" in request.form:
-        insurance.delete_record(int(request.form["record_id"]))
+        try:
+            rec_id = int(request.form["record_id"])
+            execute("DELETE FROM betting_records WHERE id = ?", [rec_id])
+            flash("战报已删除", "info")
+        except Exception as e:
+            flash(f"删除战报失败：{type(e).__name__}", "danger")
         return redirect(url_for("insurance_view", plan_name=selected_plan))
 
-    # 盘面与记录
     row = query_one("SELECT SUM(cost), SUM(profit) FROM betting_records WHERE plan_name = ?", [selected_plan])
     pool = {"cost": row[0] or 0, "profit": row[1] or 0, "loss": -(row[1] or 0) if (row[1] or 0) < 0 else 0}
     records = insurance.get_records(selected_plan)
