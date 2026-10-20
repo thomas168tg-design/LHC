@@ -312,6 +312,7 @@ def insurance_view():
     selected_plan = plan_name_from_req if plan_name_from_req else (plans[0]["name"] if plans else "")
 
     df = draws.get_all_draws()
+    events = prediction.read_library(df)
     max_issue = int(df["期数"].max()) if not df.empty else 0
     result = None
     
@@ -320,9 +321,30 @@ def insurance_view():
         target_issue = int(request.form["target_issue"])
         miss_str = request.form.get("manual_miss", "").strip()
         loss_str = request.form.get("manual_loss", "").strip()
+        override_target_str = request.form.get("override_target", "").strip()
+        
         manual_miss = int(miss_str) if miss_str else None
         manual_loss = float(loss_str) if loss_str else None
-        result = insurance.calc_issue(selected_plan, model_name, target_issue, manual_miss, manual_loss)
+        override_target = float(override_target_str) if override_target_str else None
+        
+        show_sim = request.form.get("show_sim") == "1"
+        show_365 = request.form.get("show_365") == "1"
+        
+        result = insurance.calc_issue(selected_plan, model_name, target_issue, manual_miss, manual_loss, override_target)
+        
+        if result and not result.get("error"):
+            # 沙盘推演
+            if show_sim:
+                plan_amts = next((p["config"]["amts"] for p in plans if p["name"] == selected_plan), [])
+                result["sim_table"] = insurance.calc_miss_simulation(plan_amts, result["target_profit"], 20)
+            else:
+                result["sim_table"] = []
+                
+            # 365期历史连黑分布
+            if show_365:
+                result["stats_365"] = insurance.get_365_miss(model_name, result["codes_count"], df, events)
+            else:
+                result["stats_365"] = None
         
     if request.method == "POST" and "save_record" in request.form:
         target_issue = int(request.form["target_issue"])
@@ -359,7 +381,7 @@ def insurance_view():
         raw_amts = [int(x.strip()) for x in amts_str.split(",") if x.strip()]
         config = {"strategy": strategy, "target_profit": target_profit, "amts": raw_amts}
         insurance.save_plan(name, config)
-        flash("方案已保存！", "success")
+        flash("方案已保存/更新！", "success")
         return redirect(url_for("insurance_view", plan_name=name))
 
     if request.method == "POST" and "delete_plan" in request.form:
@@ -372,7 +394,7 @@ def insurance_view():
         
     if request.method == "POST" and "delete_record" in request.form:
         try:
-            rec_id = int(request.form["record_id"])
+            rec_id = int(request.form["delete_record"])
             execute("DELETE FROM betting_records WHERE id = ?", [rec_id])
             flash("战报已删除", "info")
         except Exception as e:
@@ -380,12 +402,25 @@ def insurance_view():
         return redirect(url_for("insurance_view", plan_name=selected_plan))
 
     row = query_one("SELECT SUM(cost), SUM(profit) FROM betting_records WHERE plan_name = ?", [selected_plan])
-    pool = {"cost": row[0] or 0, "profit": row[1] or 0, "loss": -(row[1] or 0) if (row[1] or 0) < 0 else 0}
-    records = insurance.get_records(selected_plan)
+    pool_cost = row[0] or 0
+    pool_profit = row[1] or 0
+    pool = {"cost": pool_cost, "profit": pool_profit, "loss": -pool_profit if pool_profit < 0 else 0}
+    pool["roi"] = (pool_profit / pool_cost * 100) if pool_cost > 0 else 0
+
+    limit_str = request.values.get("limit", "10")
+    limit = int(limit_str) if limit_str != "all" else 0
+    records = insurance.get_records(selected_plan, limit)
     
+    for r in records:
+        match = df[df["期数"] == r["issue"]]
+        if not match.empty:
+            r["actual_num"] = int(match.iloc[0]["特码"])
+        else:
+            r["actual_num"] = None
+
     return render_template("insurance.html", plans=plans, selected_plan=selected_plan,
                            result=result, pool=pool, records=records, max_issue=max_issue,
-                           models=prediction.ALL_METHODS.keys())
+                           limit=limit, models=prediction.ALL_METHODS.keys())
 
 # ============================================================
 #            本地测试入口
