@@ -258,11 +258,28 @@ def streak():
 @app.route("/cold")
 @login_required
 def cold():
+    target_raw = request.args.get("target_issue", "").strip()
+    target = int(target_raw) if target_raw else None
     t0 = time.time()
-    r = prediction.run_cold_watch()
+    r = prediction.run_cold_watch(target_issue=target)
     r["wall"] = round(time.time() - t0, 1)
     return render_template("cold.html", r=r)
 
+@app.route("/api/cold_backtest")
+@login_required
+def api_cold_backtest():
+    target = int(request.args.get("target_issue"))
+    periods_raw = request.args.get("periods", "90")
+    periods = [int(x) for x in periods_raw.split(",") if x.strip()]
+    res = prediction.run_cold_backtest(target, periods)
+    return jsonify(res)
+
+@app.route("/api/cold_history365")
+@login_required
+def api_cold_history365():
+    target = int(request.args.get("target_issue"))
+    res = prediction.run_cold_history_365(target)
+    return jsonify(res)
 
 # ============================================================
 #            状态查看
@@ -281,7 +298,6 @@ def state():
     r = prediction.run_state_view(recent_n=recent_n)
     r["wall"] = round(time.time() - t0, 1)
     return render_template("state.html", r=r)
-
 
 # ============================================================
 #            模型对比面板

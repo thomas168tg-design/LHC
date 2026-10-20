@@ -801,17 +801,24 @@ def _streak_stats(hits, label):
 
 
 def run_cold_watch(target_issue=None):
+    """主干数据：算当前遗漏、分档、以及防守3码的多维状态"""
     df = get_all_draws()
     if df.empty: return {"error": "数据为空"}
     if target_issue is None: target_issue = int(df["期数"].max()) + 1
     target_issue = int(target_issue)
+    
     history = df[df["期数"] < target_issue]
     if history.empty: return {"error": "没有历史数据"}
+    
     numbers = history["特码"].astype(int).tolist()
     total = len(numbers)
+    
+    # 1. 计算遗漏
     last_pos = {}
     for i, n in enumerate(numbers): last_pos[n] = i
     omissions = {n: (total - 1 - last_pos[n] if n in last_pos else total) for n in range(1, 50)}
+    
+    # 2. 分档与当前池子
     per_number_gaps = {}
     all_gaps_global = []
     for num in range(1, 50):
@@ -820,14 +827,25 @@ def run_cold_watch(target_issue=None):
         gaps = [pos_list[i + 1] - pos_list[i] for i in range(len(pos_list) - 1)]
         if gaps: all_gaps_global.extend(gaps)
         per_number_gaps[num] = gaps
+        
     sorted_all = sorted(all_gaps_global)
     def quantile(q):
         if not sorted_all: return 0
         return sorted_all[min(len(sorted_all) - 1, int(len(sorted_all) * q))]
     q75, q90, q95, q99 = quantile(0.75), quantile(0.90), quantile(0.95), quantile(0.99)
-    q_max = sorted_all[-1] if sorted_all else 0
-    sorted_items = sorted(omissions.items(), key=lambda x: -x[1])
+    
+    curr_pools = {"64-110": [], "111-142": [], "143-194": [], ">=195": []}
+    for n, om in omissions.items():
+        if 64 <= om <= 110: curr_pools["64-110"].append((n, om))
+        elif 111 <= om <= 142: curr_pools["111-142"].append((n, om))
+        elif 143 <= om <= 194: curr_pools["143-194"].append((n, om))
+        elif om >= 195: curr_pools[">=195"].append((n, om))
+        
+    for k in curr_pools: curr_pools[k].sort(key=lambda x: -x[1])
+
+    # --- 生成当前超期遗漏列表 ---
     rows = []
+    sorted_items = sorted(omissions.items(), key=lambda x: -x[1])
     for num, om in sorted_items:
         if om < q75: continue
         max_gap_num = max(per_number_gaps.get(num, [0]))
@@ -836,12 +854,289 @@ def run_cold_watch(target_issue=None):
         elif om >= q90: mark = "★ ≥90%"
         else: mark = "≥75%"
         rows.append({"number": num, "omission": om, "max_gap": max_gap_num, "mark": mark})
+        
+    # --- 生成冷号分档 ---
     buckets = []
     for name, lo, hi in [("≥99%", q99, 10**9), ("≥95%", q95, q99), ("≥90%", q90, q95), ("≥75%", q75, q90)]:
         nums = [n for n, om in omissions.items() if lo <= om < hi]
         if nums: buckets.append({"name": name, "count": len(nums), "numbers": sorted(nums)})
-    return {"target_issue": target_issue, "history_total": total, "quantiles": {"q75": q75, "q90": q90, "q95": q95, "q99": q99, "q_max": q_max}, "rows": rows, "buckets": buckets}
+    
+    # --- 防守区核心算法：断档与极值 ---
+    current_gap_days = 0
+    gap_history = []
+    last_hit_idx = -1
+    
+    for i in range(total):
+        h_nums = numbers[:i]
+        h_last_pos = {}
+        for j, n in enumerate(h_nums): h_last_pos[n] = j
+        om_this = (len(h_nums) - 1 - h_last_pos[numbers[i]] if numbers[i] in h_last_pos else len(h_nums))
+        
+        if 64 <= om_this <= 110:
+            if last_hit_idx != -1:
+                gap_history.append(i - last_hit_idx)
+            last_hit_idx = i
+            
+    if last_hit_idx != -1:
+        current_gap_days = total - 1 - last_hit_idx
+            
+    gap_avg = sum(gap_history) / len(gap_history) if gap_history else 6.6
+    gap_counts = Counter(gap_history)
+    gap_high_freq = gap_counts.most_common(1)[0][0] if gap_counts else 7
+    gap_sorted = sorted(gap_history)
+    gap_p90 = gap_sorted[int(len(gap_sorted)*0.9)] if gap_sorted else 12
 
+    # ================== 防守区核心算法：断档伏击追踪 ==================
+    pool_64_110 = curr_pools["64-110"]
+    top3 = pool_64_110[:3]
+    top3_nums = [x[0] for x in top3]
+    top3_omissions = [x[1] for x in top3]
+    
+    # 1. 历史伏击周期追踪
+    episodes = []
+    current_ep = None
+    last_hit_idx = -1
+    
+    for i in range(total):
+        h_nums = numbers[:i]
+        h_target = numbers[i]
+        h_last_pos = {}
+        for j, n in enumerate(h_nums): h_last_pos[n] = j
+        h_oms = {n: (len(h_nums) - 1 - h_last_pos[n] if n in h_last_pos else len(h_nums)) for n in range(1, 50)}
+        
+        # 判断当期是否开出了 64-110 的号
+        is_pool_hit = 64 <= h_oms[h_target] <= 110
+        
+        if is_pool_hit:
+            # 如果之前有积累的断档，且成功开出了最冷3码之一
+            if current_ep is not None:
+                p64 = sorted([n for n, om in h_oms.items() if 64 <= om <= 110], key=lambda n: -h_oms[n])[:3]
+                if h_target in p64:
+                    current_ep["hit_period"] = current_ep["duration"]
+                    current_ep["hit_num"] = int(h_target)
+                    current_ep["hit_omission"] = int(h_oms[h_target])
+                    episodes.append(current_ep)
+                else:
+                    # 区间出了，但不是最冷3码，伏击失败/老化
+                    episodes.append(current_ep)
+            current_ep = None
+            last_hit_idx = i
+        else:
+            # 没出号，断档增加
+            if last_hit_idx != -1:
+                gap = i - last_hit_idx
+                if current_ep is None:
+                    current_ep = {"start_issue": int(history.iloc[i]["期数"]), "duration": 0}
+                current_ep["duration"] = gap
+
+    # 收尾处理
+    if current_ep is not None:
+        episodes.append(current_ep)
+
+    # 统计近90期的伏击战况
+    recent_eps = [ep for ep in episodes if ep["start_issue"] >= history.iloc[-min(90, total)]["期数"]]
+    
+    # 分类统计不同断档阶段的命中率
+    stages = {
+        "0-3期(冷却)": {"total": 0, "hits": 0},
+        "4-7期(启动)": {"total": 0, "hits": 0},
+        "8-12期(蓄力)": {"total": 0, "hits": 0},
+        "13期+(极限)": {"total": 0, "hits": 0}
+    }
+    
+    for ep in episodes:
+        dur = ep["duration"]
+        is_hit = 1 if "hit_period" in ep else 0
+        
+        if dur <= 3: stages["0-3期(冷却)"]["total"] += 1; stages["0-3期(冷却)"]["hits"] += is_hit
+        elif dur <= 7: stages["4-7期(启动)"]["total"] += 1; stages["4-7期(启动)"]["hits"] += is_hit
+        elif dur <= 12: stages["8-12期(蓄力)"]["total"] += 1; stages["8-12期(蓄力)"]["hits"] += is_hit
+        else: stages["13期+(极限)"]["total"] += 1; stages["13期+(极限)"]["hits"] += is_hit
+        
+    stage_rates = {}
+    for k, v in stages.items():
+        stage_rates[k] = {
+            "total": v["total"],
+            "hits": v["hits"],
+            "rate": round(v["hits"] / v["total"] * 100, 1) if v["total"] > 0 else 0
+        }
+
+    # 计算当前断档
+    current_gap_days = 0
+    if last_hit_idx != -1:
+        current_gap_days = total - 1 - last_hit_idx
+    else:
+        current_gap_days = total
+
+    # 判定状态
+    defense_status = "⚖️ 常规状态"
+    defense_class = "secondary"
+    if current_gap_days >= 13:
+        defense_status = "🔥 极限爆发区"
+        defense_class = "danger"
+    elif current_gap_days >= 8:
+        defense_status = "⏳ 蓄力伏击区"
+        defense_class = "warning"
+    elif current_gap_days <= 3:
+        defense_status = "🧊 冷却观望区"
+        defense_class = "info"
+
+    defense_data = {
+        "top3": top3_nums,
+        "top3_omissions": top3_omissions,
+        "status": defense_status,
+        "status_class": defense_class,
+        "current_gap": current_gap_days,
+        "stage_rates": stage_rates,
+        "recent_episodes": episodes[-10:][::-1]  # 最近10次伏击战
+    }
+
+    # 默认把 365 期的回测跑好，随主页面一起返回
+    default_backtest = run_cold_backtest(target_issue, [30, 60, 90, 365])
+
+    return {
+        "target_issue": target_issue, "history_total": total,
+        "quantiles": {"q75": q75, "q90": q90, "q95": q95, "q99": q99, "q_max": max(sorted_all) if sorted_all else 0},
+        "rows": rows, "buckets": buckets,
+        "current_pool_111_194": [x[0] for x in (curr_pools["111-142"] + curr_pools["143-194"])],
+        "defense_data": defense_data,
+        "default_backtest": default_backtest
+    }
+
+
+def run_cold_backtest(target_issue, periods):
+    """多周期回测 API：接收 [30, 90, 365]，按周期追踪返回"""
+    df = get_all_draws()
+    history = df[df["期数"] < target_issue]
+    numbers = history["特码"].astype(int).tolist()
+    total = len(numbers)
+    
+    max_period = max(periods) if periods else 365
+    if max_period == 0: max_period = total
+    loop_len = min(max_period, total)
+    # 稍微多往前推一点，避免跨界的周期算不准
+    start_idx = max(0, total - loop_len - 20)
+    
+    episodes = []
+    current_episode = None
+    
+    for i in range(start_idx, total):
+        h_nums = numbers[:i]
+        h_target = numbers[i]
+        h_last_pos = {}
+        for j, n in enumerate(h_nums): h_last_pos[n] = j
+        h_oms = {n: (len(h_nums) - 1 - h_last_pos[n] if n in h_last_pos else len(h_nums)) for n in range(1, 50)}
+        
+        pool = {n for n, om in h_oms.items() if 111 <= om <= 194}
+        is_trigger = len(pool) >= 4
+        
+        if is_trigger:
+            if current_episode is None:
+                # 开始新周期
+                current_episode = {
+                    "start_idx": i,
+                    "start_issue": int(history.iloc[i]["期数"]),
+                    "duration": 0,
+                    "hit_period": None,
+                    "hit_num": None,
+                    "history_targets": []
+                }
+            
+            current_episode["duration"] += 1
+            current_episode["history_targets"].append(int(h_target))
+            
+            if current_episode["hit_period"] is None and h_target in pool:
+                current_episode["hit_period"] = current_episode["duration"]
+                current_episode["hit_num"] = int(h_target)
+                # 命中后，这期结束
+                episodes.append(current_episode)
+                current_episode = None
+        else:
+            # 信号断开（号码老化掉出区间，或不足4个）
+            if current_episode is not None:
+                # 周期结束（未命中）
+                episodes.append(current_episode)
+                current_episode = None
+
+    if current_episode is not None:
+         episodes.append(current_episode)
+
+    results = {}
+    for p in periods:
+        p_len = p if p > 0 else total
+        p_start_idx = total - p_len
+        
+        # 筛选出在这个统计窗口内开启的周期
+        valid_episodes = [ep for ep in episodes if ep["start_idx"] >= p_start_idx]
+        
+        trigger_count = len(valid_episodes)
+        hit_count = sum(1 for ep in valid_episodes if ep["hit_period"] is not None)
+        total_duration = sum(ep["duration"] for ep in valid_episodes)
+        avg_duration = round(total_duration / trigger_count, 1) if trigger_count > 0 else 0
+        
+        # 计算命中时间分布
+        hit_dist = Counter(ep["hit_period"] for ep in valid_episodes if ep["hit_period"] is not None)
+        # 找出推荐的止损期（例如涵盖 80% 命中情况的最大期数）
+        cum_hits = 0
+        recommended_stop = 1
+        for k in sorted(hit_dist.keys()):
+            cum_hits += hit_dist[k]
+            if cum_hits / hit_count >= 0.80:
+                recommended_stop = k
+                break
+                
+        recent_details = []
+        for ep in valid_episodes[::-1]: # 最新的在前面
+            recent_details.append({
+                "issue": ep["start_issue"],
+                "duration": ep["duration"],
+                "hit_period": ep["hit_period"],
+                "hit_num": ep["hit_num"]
+            })
+        
+        results[str(p)] = {
+            "trigger": trigger_count,
+            "hits": hit_count,
+            "rate": round((hit_count / trigger_count * 100), 1) if trigger_count > 0 else 0,
+            "avg_duration": avg_duration,
+            "recommended_stop": recommended_stop,
+            "hit_dist": dict(hit_dist),
+            "details": recent_details
+        }
+        
+    return results
+
+
+def run_cold_history_365(target_issue):
+    """近365期冷号开奖明细 API"""
+    df = get_all_draws()
+    history = df[df["期数"] < target_issue]
+    issues = history["期数"].tolist()
+    total = len(issues)
+    
+    events = read_library(df)
+    events_dict = {row["期数"]: row for row in events.to_dict("records")}
+    recent = issues[-365:]
+    
+    result = []
+    for iss in recent:
+        if iss not in events_dict: continue
+        rank = events_dict[iss]["实际排名"]
+        actual = events_dict[iss]["实际特码"]
+        percentile = (50 - rank) / 49 * 100
+        
+        if percentile >= 75:
+            if percentile >= 99: m, c = "≥99%极冷", "bg-danger"
+            elif percentile >= 95: m, c = "≥95%大冷", "bg-warning text-dark"
+            elif percentile >= 90: m, c = "≥90%中冷", "bg-info text-dark"
+            else: m, c = "≥75%小冷", "bg-success"
+            
+            result.append({
+                "issue": iss, "actual": actual, "rank": rank,
+                "percentile": round(percentile, 1), "mark": m, "badge_class": c
+            })
+    result.reverse()
+    return result
 
 def run_state_view(target_issue=None, recent_n=10):
     df = get_all_draws()
@@ -852,7 +1147,6 @@ def run_state_view(target_issue=None, recent_n=10):
     events = read_library(df)
     events_dict = {row["期数"]: row for row in events.to_dict("records")}
     
-    # 极速优化：直接转成 list 操作
     all_issues = df[df["期数"] < target_issue]["期数"].tolist()
     all_specials = df[df["期数"] < target_issue]["特码"].tolist()
     if len(all_issues) < 60: return {"error": "历史不足"}
@@ -869,26 +1163,24 @@ def run_state_view(target_issue=None, recent_n=10):
     prev_prev_rank, prev_num = get_rank_and_num(issue_prev)
     rank_diff = prev_rank - prev_prev_rank
     
-    # 上上期权重详情
     hist_prev_prev_nums = all_specials[:idx_prev]
     streaks_prev_prev = compute_tail_streaks(hist_prev_prev_nums)
     prev_prev_tail = prev_num % 10
     prev_prev_weight = tail_weight(streaks_prev_prev[prev_prev_tail])
     
-    # 上期权重详情
     hist_prev_nums = all_specials[:idx_now]
     streaks_prev = compute_tail_streaks(hist_prev_nums)
     prev_tail = actual_num % 10
     prev_weight = tail_weight(streaks_prev[prev_tail])
     
     def w_desc_fn(w):
-        if w > 1.0: return "升权(中遗漏)"
-        elif w < 1.0: return "降权(冷门)"
+        if w > 1.0: return "升权"
+        elif w < 1.0: return "冷门降权"
         else: return "正常"
         
     is_correct = prev_weight >= 1.0
 
-    # 近 N 期历史验证 (O(N) 纯原生操作，瞬间完成)
+    # 近 N 期历史验证
     recent_list = []
     hits = 0
     start_i = max(1, len(all_issues) - recent_n)
@@ -913,7 +1205,7 @@ def run_state_view(target_issue=None, recent_n=10):
             is_c = False
             
         recent_list.append({
-            "issue": issue, "actual": actual, "tail": tail,
+            "issue": issue, "actual": actual,
             "rank_now": rank_now, "rank_prev": rank_prev, "diff": diff,
             "weight": weight, "w_desc": w_desc, "is_correct": is_c
         })
@@ -934,9 +1226,13 @@ def run_state_view(target_issue=None, recent_n=10):
     mp = _build_cache(df, events, target_issue - 1)
     method = DEFAULT_METHOD
     model_100 = []
+    sliding_trends = {} # 新增：滑动趋势
+    
     if method in mp:
         items = sorted(mp[method].items())
         items = [(i, p) for i, p in items if i < target_issue]
+        
+        # 1. 计算最新100期表现
         recent = items[-100:]
         n = len(recent)
         if n > 0:
@@ -945,21 +1241,42 @@ def run_state_view(target_issue=None, recent_n=10):
                 rate = r_hits / n
                 breakeven = top_k * ODDS_BREAKEVEN_SINGLE
                 model_100.append({"top_k": top_k, "rate": rate, "breakeven": breakeven, "diff": rate - breakeven, "above": rate - breakeven > 0})
-                
+
+        # 2. 计算 10 个滑窗（当前及往前推 9 个，每个滑窗 100 期）
+        for top_k in [5, 10, 12, 20]:
+            trend = []
+            for shift in range(9, -1, -1):  # 从最老的到最新的
+                end_idx = len(items) - shift * 10
+                start_idx = max(0, end_idx - 100)
+                sub = items[start_idx:end_idx]
+                if sub:
+                    h = sum(1 for _, p in sub if p <= top_k)
+                    trend.append(round(h / len(sub) * 100, 1))
+                else:
+                    trend.append(0)
+            sliding_trends[top_k] = trend
+
     return {
         "target_issue": target_issue, 
         "recent_n": recent_n,
         "accuracy": accuracy,
-        "diff": {
-            "prev_prev_rank": prev_prev_rank, "prev_prev_num": prev_num, "prev_prev_tail": prev_prev_tail, 
-            "prev_prev_weight": prev_prev_weight, "prev_prev_w_desc": w_desc_fn(prev_prev_weight),
-            "prev_rank": prev_rank, "prev_num": actual_num, "prev_tail": prev_tail, 
-            "prev_weight": prev_weight, "prev_w_desc": w_desc_fn(prev_weight),
+               "diff": {
+            "prev_prev_rank": prev_prev_rank, 
+            "prev_prev_num": prev_num, 
+            "prev_prev_tail": prev_num % 10,
+            "prev_prev_weight": prev_prev_weight, 
+            "prev_prev_w_desc": w_desc_fn(prev_prev_weight),
+            "prev_rank": prev_rank, 
+            "prev_num": actual_num, 
+            "prev_tail": actual_num % 10,
+            "prev_weight": prev_weight, 
+            "prev_w_desc": w_desc_fn(prev_weight),
             "is_correct": is_correct,
             "rank_diff": rank_diff
         }, 
         "tail_streaks": tail_rows, 
         "model_100": model_100, 
+        "sliding_trends": sliding_trends,
         "method": method,
         "recent_list": recent_list
     }

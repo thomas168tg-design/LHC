@@ -1,88 +1,163 @@
 {% extends "base.html" %}
 {% block title %}状态查看{% endblock %}
 {% block content %}
+<!-- 引入 Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- 加载打平线插件 -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+
+<style>
+    body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #f8fafc; }
+    .card { border: none; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-bottom: 1.2rem; background: #fff; }
+    
+    .card-header-dark { background: #1e293b; color: #fff; border-radius: 12px 12px 0 0 !important; padding: 14px 20px; }
+    .card-header-dark h6 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: 0.5px; }
+    
+    .compact-table th, .compact-table td { padding: 0.6rem 0.4rem; font-size: 13.5px; vertical-align: middle; border-color: #f1f5f9; }
+    .compact-table thead { background: #f8fafc; color: #64748b; font-weight: 600; }
+    
+    /* 图表容器 */
+    .chart-box { position: relative; height: 150px; width: 100%; }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3 class="mb-0">状态查看 (目标期 {{ r.target_issue }})</h3>
+    <h4 class="mb-0" style="font-weight: 600; color: #1e293b;">状态查看 (目标期 {{ r.target_issue }})</h4>
     <div class="text-muted small">耗时 {{ r.wall }}s</div>
 </div>
 
-<!-- 仪表盘式的上期验证 (加回来了) -->
-<div class="card mb-3 shadow-sm border-0">
-    <div class="card-body bg-light rounded">
-        <h5 class="text-center mb-4">上期尾数权重验证</h5>
-        <div class="d-flex justify-content-around align-items-center">
-            <div class="text-center">
-                <div class="text-muted small mb-1">上上期开奖</div>
-                <div class="fs-3 fw-bold text-secondary">{{ r.diff.prev_prev_num }}</div>
-                <div class="mt-2 badge bg-dark">{{ r.diff.prev_prev_tail }}尾</div>
-                <div class="small mt-1">{{ r.diff.prev_prev_w_desc }} <br> 权重 {{ r.diff.prev_prev_weight }}</div>
-            </div>
+<!-- 上期验证仪表盘 (科技高定版) -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header-dark d-flex justify-content-between align-items-center" style="background: linear-gradient(90deg, #1e293b, #334155);">
+        <h6 class="m-0 d-flex align-items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="me-2" viewBox="0 0 16 16"><path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zM8 1.918l-.797.161A4.002 4.002 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 0 0-3.203-3.92L8 1.917zM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 6.88 3 6c0-2.42 1.72-4.44 4.005-4.901a1 1 0 1 1 1.99 0A5.002 5.002 0 0 1 13 6c0 .88.32 4.2 1.22 6z"/></svg>
+            上期尾数权重验证
+        </h6>
+        {% if r.diff.is_correct %}
+            <span class="badge bg-success shadow-sm" style="font-size:12px;"><i class="bi bi-check-circle-fill me-1"></i> 判断正确</span>
+        {% else %}
+            <span class="badge bg-danger shadow-sm" style="font-size:12px;"><i class="bi bi-x-circle-fill me-1"></i> 判断爆冷</span>
+        {% endif %}
+    </div>
+    <div class="card-body py-4 px-3" style="background: radial-gradient(circle at top right, #ffffff, #f8fafc);">
+        
+        <div class="d-flex justify-content-around align-items-center position-relative">
             
-            <div class="text-muted fs-2">➜</div>
-            
-            <div class="text-center">
-                <div class="text-muted small mb-1">上期实际开奖</div>
-                <div class="fs-3 fw-bold {% if r.diff.is_correct %}text-success{% else %}text-danger{% endif %}">{{ r.diff.prev_num }}</div>
-                <div class="mt-2 badge {% if r.diff.is_correct %}bg-success{% else %}bg-danger{% endif %}">{{ r.diff.prev_tail }}尾</div>
-                <div class="small mt-1">{{ r.diff.prev_w_desc }} <br> 权重 {{ r.diff.prev_weight }}</div>
+            <!-- 上上期 (过去) -->
+            <div class="text-center" style="z-index: 2; opacity: 0.8;">
+                <div class="text-muted small mb-2">上上期开奖</div>
+                <div class="d-inline-flex align-items-center justify-content-center text-white rounded-circle mb-3" style="width: 54px; height: 54px; font-size: 22px; font-weight: bold; background: linear-gradient(135deg, #94a3b8, #64748b); box-shadow: inset 0 -3px 6px rgba(0,0,0,0.2), 0 4px 10px rgba(100,116,139,0.3);">
+                    {{ r.diff.prev_prev_num }}
+                </div>
+                <div class="small text-secondary mb-1">赛前排名</div>
+                <div class="fs-5 fw-bold text-dark" style="line-height:1;">{{ r.diff.prev_prev_rank }}</div>
+                <div class="mt-2 badge bg-light text-secondary border px-2 py-1">权重 {{ r.diff.prev_prev_weight }}</div>
             </div>
 
-            <div class="text-muted fs-2">➜</div>
-            
-            <div class="text-center">
-                <div class="text-muted small mb-1">权重判定</div>
+            <!-- 连接箭头 -->
+            <div class="text-center" style="z-index: 1;">
+                <div class="text-secondary mb-1" style="font-size: 24px; opacity: 0.5;">➜</div>
+                <div class="small text-muted" style="font-size: 11px;">
+                    差分 {{ '+' if r.diff.rank_diff > 0 }}{{ r.diff.rank_diff }}
+                </div>
+            </div>
+
+            <!-- 上期 (刚开奖) -->
+            <div class="text-center" style="z-index: 2;">
+                <div class="text-dark fw-bold small mb-2">上期实际开奖</div>
+                <div class="d-inline-flex align-items-center justify-content-center text-white rounded-circle mb-3" style="width: 66px; height: 66px; font-size: 28px; font-weight: bold; background: linear-gradient(135deg, {% if r.diff.is_correct %}#34d399, #059669{% else %}#f87171, #dc2626{% endif %}); box-shadow: inset 0 -4px 8px rgba(0,0,0,0.2), 0 6px 15px rgba({% if r.diff.is_correct %}5,150,105{% else %}220,38,38{% endif %},0.4); border: 2px solid #fff;">
+                    {{ r.diff.prev_num }}
+                </div>
+                <div class="small text-secondary mb-1">赛前排名</div>
+                <div class="fs-5 fw-bold text-dark" style="line-height:1;">{{ r.diff.prev_rank }}</div>
+                <div class="mt-2 badge {% if r.diff.prev_weight > 1 %}bg-success{% elif r.diff.prev_weight < 1 %}bg-danger{% else %}bg-secondary{% endif %} shadow-sm px-2 py-1">
+                    权重 {{ r.diff.prev_weight }}
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 逻辑解析区 -->
+        <div class="mt-4 p-3 rounded-3 {% if r.diff.is_correct %}bg-success bg-opacity-10 border border-success border-opacity-25{% else %}bg-danger bg-opacity-10 border border-danger border-opacity-25{% endif %} d-flex align-items-start">
+            <div class="me-3 fs-5 {% if r.diff.is_correct %}text-success{% else %}text-danger{% endif %}">
+                {% if r.diff.is_correct %}💡{% else %}⚠️{% endif %}
+            </div>
+            <div class="small lh-base" style="color: {% if r.diff.is_correct %}#065f46{% else %}#991b1b{% endif %};">
                 {% if r.diff.is_correct %}
-                    <div class="display-6 text-success">✔</div>
-                    <div class="fw-bold text-success mt-2">判断正确 (命中)</div>
-                    <div class="small text-muted">符合升权/正常逻辑</div>
+                    <strong>逻辑闭环：</strong> 上期开出特码 <strong>{{ r.diff.prev_num }}</strong>（{{ r.diff.prev_tail }}尾），该尾数赛前权重为 <strong>{{ r.diff.prev_weight }}</strong>（{{ r.diff.prev_w_desc }}）。完全在模型升权/正常逻辑内，成功捕获。
                 {% else %}
-                    <div class="display-6 text-danger">✘</div>
-                    <div class="fw-bold text-danger mt-2">判断错误 (爆冷)</div>
-                    <div class="small text-muted">降权尾数强行开出</div>
+                    <strong>冷门预警：</strong> 上期开出特码 <strong>{{ r.diff.prev_num }}</strong>（{{ r.diff.prev_tail }}尾），但该尾数赛前处于降权状态（权重 {{ r.diff.prev_weight }}）。属于强行爆冷，模型未能捕捉，需警惕连黑风险。
                 {% endif %}
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <!-- 当前尾数遗漏 -->
+    <div class="col-12 col-lg-5">
+        <div class="card h-100">
+            <div class="card-header-dark">
+                <h6>当前尾数遗漏与权重</h6>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-striped text-center mb-0 compact-table">
+                    <thead>
+                        <tr><th>尾数</th><th>遗漏</th><th>权重值</th><th>说明</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for t in r.tail_streaks %}
+                        <tr>
+                            <td class="text-secondary fw-bold">{{ t.tail }}尾</td>
+                            <td>{{ t.streak }}</td>
+                            <td class="fw-bold {% if t.weight > 1 %}text-success{% elif t.weight < 1 %}text-danger{% else %}text-secondary{% endif %}">
+                                {{ t.weight }}
+                            </td>
+                            <td class="text-muted" style="font-size:12px;">{{ t.desc }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模型 100 期表现 & 滑动趋势（Chart.js） -->
+    <div class="col-12 col-lg-7">
+        <div class="card h-100">
+            <div class="card-header-dark">
+                <h6>近100期模型表现 ({{ r.method }})</h6>
+            </div>
+            <div class="card-body pt-4">
+                {% for m in r.model_100 %}
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-end mb-1">
+                        <span class="fs-6 fw-bold text-dark">Top{{ m.top_k }} <span class="text-secondary small" style="font-weight:normal;">（打平线 {{ '%.2f'|format(m.breakeven*100) }}%）</span></span>
+                        <span class="fs-5 fw-bold {% if m.above %}text-success{% else %}text-danger{% endif %}">
+                            {{ '%.2f'|format(m.rate*100) }}%
+                        </span>
+                    </div>
+                    
+                    <!-- 图表容器，限制高度 -->
+                    <div class="chart-box">
+                        <canvas id="chart-{{ m.top_k }}"></canvas>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
         </div>
     </div>
 </div>
 
-<!-- 当前尾数遗漏与权重（标准表格排版） -->
-<div class="card mb-4 shadow-sm">
-    <div class="card-header bg-dark text-white fw-bold">当前尾数遗漏与权重（用于下一期参考）</div>
-    <div class="card-body p-0">
-        <table class="table table-sm table-hover text-center mb-0">
-            <thead class="table-light">
-                <tr>
-                    <th>尾数</th>
-                    <th>当前遗漏</th>
-                    <th>权重值</th>
-                    <th>权重说明</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for t in r.tail_streaks %}
-                <tr>
-                    <td class="fw-bold">{{ t.tail }}尾</td>
-                    <td>{{ t.streak }}</td>
-                    <td>
-                        <span class="badge {% if t.weight > 1 %}bg-success{% elif t.weight < 1 %}bg-danger{% else %}bg-secondary{% endif %}" style="width:50px;">
-                            {{ t.weight }}
-                        </span>
-                    </td>
-                    <td class="text-muted small align-middle">{{ t.desc }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- 历史验证区 -->
-<div class="card mb-3">
-    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-        <div class="fw-bold">近 {{ r.recent_n }} 期尾数权重与开奖验证（准确率: <span class="text-warning">{{ '%.2f'|format(r.accuracy*100) }}%</span>）</div>
+<!-- 近 N 期尾数验证 -->
+<div class="card">
+    <div class="card-header-dark d-flex justify-content-between align-items-center flex-wrap">
+        <h6 class="mb-2 mb-md-0">
+            近 {{ r.recent_n }} 期尾数验证 
+            <span class="badge {% if r.accuracy >= 0.6 %}bg-success{% else %}bg-warning text-dark{% endif %} ms-2" style="font-size:13px;">准确率 {{ '%.2f'|format(r.accuracy*100) }}%</span>
+        </h6>
         <form method="get" class="d-flex align-items-center mb-0">
-            <label class="me-2 small text-light">选择验证期数:</label>
-            <select name="recent_n" class="form-select form-select-sm" onchange="this.form.submit()" style="width: 100px;">
+            <select name="recent_n" class="form-select form-select-sm" onchange="this.form.submit()" style="width: 110px; border-radius: 6px;">
                 {% for n in [10, 20, 30, 40, 50, 60, 90, 100, 120, 200, 365] %}
                     <option value="{{ n }}" {% if n == r.recent_n %}selected{% endif %}>近 {{ n }} 期</option>
                 {% endfor %}
@@ -90,35 +165,33 @@
         </form>
     </div>
     <div class="card-body p-0">
-        <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-            <table class="table table-sm table-striped text-center mb-0">
-                <thead class="table-light sticky-top">
+        <div class="table-responsive" {% if r.recent_n > 10 %}style="max-height: 500px; overflow-y: auto;"{% endif %}>
+            <table class="table table-sm table-striped text-center mb-0 compact-table">
+                <thead class="sticky-top">
                     <tr>
-                        <th>期数</th><th>开奖号</th><th>尾数</th>
+                        <th>期数</th><th>开奖号码</th>
                         <th>当期排名</th><th>上期排名</th><th>差分</th>
-                        <th>当期权重</th><th>权重说明</th><th>判定结果</th>
+                        <th>权重方向</th><th>判定</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for x in r.recent_list %}
                     <tr>
-                        <td>{{ x.issue }}</td>
-                        <td><span class="num-ball">{{ x.actual }}</span></td>
-                        <td class="fw-bold">{{ x.tail }}尾</td>
-                        <td>{{ x.rank_now }}</td>
+                        <td class="text-secondary">{{ x.issue }}</td>
+                        <td><span class="badge bg-primary rounded-circle p-2" style="width:28px;height:28px;line-height:12px;">{{ x.actual }}</span></td>
+                        <td class="fw-bold">{{ x.rank_now }}</td>
                         <td>{{ x.rank_prev }}</td>
-                        <td class="{% if x.diff < -25 or x.diff > 25 %}text-danger fw-bold{% endif %}">
+                        <td class="fw-bold {% if x.diff < -25 or x.diff > 25 %}text-danger{% else %}text-secondary{% endif %}">
                             {{ '+' if x.diff > 0 }}{{ x.diff }}
                         </td>
-                        <td class="fw-bold {% if x.weight > 1 %}text-success{% elif x.weight < 1 %}text-secondary{% endif %}">
-                            {{ x.weight }}
+                        <td class="{% if x.weight > 1 %}text-success{% elif x.weight < 1 %}text-danger{% else %}text-secondary{% endif %}">
+                            {{ x.w_desc }}
                         </td>
-                        <td>{{ x.w_desc }}</td>
                         <td>
                             {% if x.is_correct %}
-                                <span class="badge bg-success">判断命中</span>
+                                <span class="text-success fw-bold">命中</span>
                             {% else %}
-                                <span class="badge bg-danger">判断爆冷</span>
+                                <span class="text-danger fw-bold">爆冷</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -129,20 +202,87 @@
     </div>
 </div>
 
-<div class="card">
-    <div class="card-header bg-dark text-white">近 100 期模型表现 ({{ r.method }})</div>
-    <div class="card-body">
-        <div class="row text-center">
-            {% for m in r.model_100 %}
-            <div class="col-md-3">
-                <div class="border rounded p-3">
-                    <h6>Top{{ m.top_k }}</h6>
-                    <h4 class="{% if m.above %}text-success{% else %}text-danger{% endif %}">{{ '%.2f'|format(m.rate*100) }}%</h4>
-                    <div class="small text-muted">打平线 {{ '%.2f'|format(m.breakeven*100) }}%</div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-</div>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const labels = ['-90期', '-80期', '-70期', '-60期', '-50期', '-40期', '-30期', '-20期', '-10期', '当前'];
+
+    {% for m in r.model_100 %}
+    (function() {
+        const canvas = document.getElementById("chart-{{ m.top_k }}");
+        if (!canvas) return;
+
+        const dataValues = {{ r.sliding_trends[m.top_k] | tojson }};
+        const breakeven = {{ (m.breakeven * 100)|round(2) }};
+        
+        const maxVal = Math.max(...dataValues, breakeven);
+        const dynamicMax = Math.ceil(maxVal) + 5; 
+        
+        const bgColors = dataValues.map((val, index) => {
+            const isUp = val >= breakeven;
+            const isCurrent = index === 9;
+            if (isUp) return isCurrent ? 'rgba(16, 185, 129, 1)' : 'rgba(16, 185, 129, 0.4)';
+            else return isCurrent ? 'rgba(239, 68, 68, 1)' : 'rgba(239, 68, 68, 0.4)';
+        });
+
+        new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: dataValues,
+                    backgroundColor: bgColors,
+                    borderRadius: 3,
+                    barPercentage: 0.6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: {
+                    padding: { top: 10, right: 10 }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: { label: function(context) { return context.parsed.y + '%'; } }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: dynamicMax, 
+                        grid: {
+                            color: '#f1f5f9',
+                            drawBorder: false,
+                        },
+                        ticks: {
+                            stepSize: dynamicMax > 40 ? 10 : 5, 
+                            font: { size: 10 },
+                            color: '#94a3b8'
+                        }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { size: 11 }, color: '#64748b' }
+                    }
+                },
+                annotation: {
+                    annotations: {
+                        line1: {
+                            type: 'line',
+                            yMin: breakeven,
+                            yMax: breakeven,
+                            borderColor: '#ef4444',
+                            borderWidth: 1.5,
+                            borderDash: [5, 5],
+                            label: { display: false }
+                        }
+                    }
+                }
+            }
+        });
+    })();
+    {% endfor %}
+});
+</script>
 {% endblock %}
