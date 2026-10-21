@@ -30,7 +30,10 @@
         <div class="mb-4">
             {% if r.current_pool_111_194|length >= 4 %}
             <div class="alert alert-danger py-2 mb-2 border-0 shadow-sm">
-                <h6 class="alert-heading fw-bold mb-1">🚨 黄金狙击信号！</h6>
+                <h6 class="alert-heading fw-bold mb-1 d-flex justify-content-between align-items-center">
+    <span>🚨 黄金狙击信号！</span>
+    <span class="badge bg-danger fs-6">当前已持续：第 {{ r.gold_streak }} 期</span>
+</h6>
                 <div class="small">当前 111-194 区间堆积了 {{ r.current_pool_111_194|length }} 个号码。强烈建议包抄！</div>
                 <div class="mt-2 fw-bold text-danger mb-2">
                     包抄号码: {% for n in r.current_pool_111_194 %}<span class="num-ball bg-white text-danger border">{{ n }}</span>{% endfor %}
@@ -42,6 +45,14 @@
                     近365期: <span class="text-success fw-bold">{{ r.default_backtest['365'].rate }}%</span> ({{ r.default_backtest['365'].hits }}/{{ r.default_backtest['365'].trigger }})
                 </div>
             </div>
+{% elif r.remnant_pool|length > 0 %}
+<div class="alert alert-warning py-2 mb-2 border-0 shadow-sm">
+    <h6 class="alert-heading fw-bold mb-1">🎯 黄金区连爆残党追踪 (破裂后第 {{ r.remnant_duration + 1 }} 期)</h6>
+    <div class="small">黄金区因老化破裂，当前剩余 <strong>{{ r.remnant_pool|length }}</strong> 个残党。历史上残党单期胜率高于打平线，建议追击到命中或老化。</div>
+    <div class="mt-2 fw-bold text-dark mb-2">
+        狙击残党: {% for n in r.remnant_pool %}<span class="num-ball bg-white text-dark border">{{ n }}</span>{% endfor %}
+    </div>
+</div>
             {% else %}
             <div class="alert alert-secondary py-2 mb-2 border-0 shadow-sm">
                 <h6 class="alert-heading fw-bold mb-1">💤 黄金区暂无信号</h6>
@@ -49,10 +60,18 @@
             </div>
             {% endif %}
 
-            <!-- 黄金区回测面板（合并到此处） -->
+            <!-- 黄金区回测面板 -->
             <div class="bg-white border rounded p-3 shadow-sm">
                 <div class="d-flex align-items-center flex-wrap gap-3 mb-2">
                     <span class="fw-bold small text-dark">延长回测周期:</span>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="p90" value="90">
+                        <label class="form-check-label small" for="p90">近90期</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="p365" value="365">
+                        <label class="form-check-label small" for="p365">近365期</label>
+                    </div>
                     <div class="form-check form-check-inline mb-0">
                         <input class="form-check-input" type="checkbox" id="p730" value="730">
                         <label class="form-check-label small" for="p730">近730期</label>
@@ -61,7 +80,8 @@
                         <input class="form-check-input" type="checkbox" id="pAll" value="0">
                         <label class="form-check-label small" for="pAll">全历史</label>
                     </div>
-                    <button class="btn btn-sm btn-outline-primary px-3" id="btnBacktest">计算更长周期</button>
+                    <button class="btn btn-sm btn-outline-primary px-3" id="btnBacktest">计算选中周期</button>
+<button class="btn btn-sm btn-outline-warning px-3 ms-2" data-bs-toggle="modal" data-bs-target="#remnantModal">破裂残党历史详细</button>
                 </div>
                 
                 <div class="d-flex align-items-center flex-wrap gap-2 mt-2">
@@ -84,7 +104,6 @@
         <div>
             <h6 class="fw-bold mb-3 text-dark d-flex justify-content-between align-items-center">
                 <span>🛡️ 最冷3码防守区 (状态：{{ r.defense_data.status }})</span>
-                <span class="badge bg-secondary">打平线 6.52%</span>
             </h6>
             
             <!-- 当前防守号码 -->
@@ -100,7 +119,7 @@
                         当前连续断档: {{ r.defense_data.current_gap }} 期
                     </div>
                     <div class="small text-muted">
-                        {% if r.defense_data.current_gap >= 13 %}👉 已达到历史极限，随时爆出！
+                        {% if r.defense_data.current_gap >= 13 %}👉 达到历史极限，随时爆出！
                         {% elif r.defense_data.current_gap >= 8 %}👉 进入高危伏击期，准备下注！
                         {% else %}👉 冷却期，建议观望。{% endif %}
                     </div>
@@ -108,46 +127,70 @@
             </div>
             
             <div class="row g-3 text-dark" style="font-size: 13px;">
-                <!-- 1. 各断档阶段真实命中率 -->
+                <!-- 1. 各断档阶段真实命中率 (默认折叠) -->
                 <div class="col-md-6">
                     <div class="bg-white p-3 rounded border h-100 shadow-sm">
-                        <div class="fw-bold mb-2 border-bottom pb-1 text-primary">📊 历史断档阶段命中率</div>
-                        <table class="table table-sm table-borderless mb-0" style="font-size:12px;">
-                            <tr class="text-muted border-bottom">
-                                <th>断档阶段</th><th>伏击次数</th><th>命中次数</th><th>命中率</th>
-                            </tr>
-                            {% for stage, data in r.defense_data.stage_rates.items() %}
-                            <tr>
-                                <td>{{ stage }}</td>
-                                <td>{{ data.total }} 次</td>
-                                <td>{{ data.hits }} 次</td>
-                                <td class="{% if data.rate > 6.52 %}text-success fw-bold{% else %}text-danger{% endif %}">
-                                    {{ data.rate }}%
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </table>
-                        <div class="small text-muted mt-1">* 断档概念：距离上次开出 64-110 区间号码的间隔期数。一旦在周期内命中，利润即可覆盖前几期成本并盈利，因此周期越长（如 8-12 期），出现命中时往往意味着高额利润。</div>
+                        <!-- 头部可点击区域 -->
+                        <div class="fw-bold mb-2 pb-1 text-primary d-flex justify-content-between align-items-center" 
+                             data-bs-toggle="collapse" data-bs-target="#collapseStage" 
+                             style="cursor: pointer; border-bottom: 1px solid #dee2e6;">
+                            <span>📊 历史断档爆发周期统计</span>
+                            <span class="text-muted small">点击展开 ⬇</span>
+                        </div>
+                        
+                        <!-- 折叠内容 -->
+                        <div class="collapse" id="collapseStage">
+                            <table class="table table-sm table-borderless mb-0 mt-2" style="font-size:12px;">
+                                <tr class="text-muted border-bottom">
+                                    <th>爆发周期</th><th>发生次数</th><th>命中次数</th><th>周期胜率</th>
+                                </tr>
+                                {% for stage, data in r.defense_data.stage_rates.items() %}
+                                <tr>
+                                    <td>{{ stage.replace('(冷却)', '(短周期)').replace('(启动)', '(中周期)').replace('(蓄力)', '(长周期)').replace('(极限)', '(超长)') }}</td>
+                                    <td>{{ data.total }} 次</td>
+                                    <td>{{ data.hits }} 次</td>
+                                    <td class="{% if data.rate > 30 %}text-success fw-bold{% else %}text-secondary{% endif %}">
+                                        {{ data.rate }}%
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </table>
+                            <div class="small text-muted mt-3" style="line-height:2;">
+                                <strong>⚠️ 必读说明：</strong> <br>
+                                 “爆发周期”是指从断档开始，到号码爆出/老化所经历的完整时间段。<br>
+                                  若在 8-12 期爆发，代表历史上这样的长周期有 26 次，最终命中了 12 次。<br>熬得越久，一旦命中利润越丰厚（覆盖前期成本），但需要承担前面的连黑成本。
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
-                <!-- 2. 最近10次伏击战报 -->
+                <!-- 2. 最近10次伏击战报 (默认折叠) -->
                 <div class="col-md-6">
                     <div class="bg-white p-3 rounded border h-100 shadow-sm">
-                        <div class="fw-bold mb-2 border-bottom pb-1 text-primary">🎯 最近10次伏击战报</div>
-                        <div style="max-height: 180px; overflow-y: auto;">
-                            {% for ep in r.defense_data.recent_episodes %}
-                            <div class="d-flex justify-content-between small border-bottom pb-1 mb-1">
-                                <span>{{ ep.start_issue }}期起</span>
-                                <span>
-                                    {% if ep.hit_period %}
-                                        <span class="text-success fw-bold">第 {{ ep.hit_period }} 期命中 {{ ep.hit_num }}</span>
-                                    {% else %}
-                                        <span class="text-danger">追 {{ ep.duration }} 期未中(老化)</span>
-                                    {% endif %}
-                                </span>
+                        <!-- 头部可点击区域 -->
+                        <div class="fw-bold mb-2 pb-1 text-primary d-flex justify-content-between align-items-center" 
+                             data-bs-toggle="collapse" data-bs-target="#collapseEpisodes" 
+                             style="cursor: pointer; border-bottom: 1px solid #dee2e6;">
+                            <span>🎯 最近10次伏击战报</span>
+                            <span class="text-muted small">点击展开 ⬇</span>
+                        </div>
+                        
+                        <!-- 折叠内容 -->
+                        <div class="collapse" id="collapseEpisodes">
+                            <div style="max-height: 280px; overflow-y: auto; margin-top: 10px;">
+                                {% for ep in r.defense_data.recent_episodes %}
+                                <div class="d-flex justify-content-between small border-bottom pb-1 mb-1" style="min-height: 20px; line-height: 20px;">
+                                    <span>{{ ep.start_issue }}期起</span>
+                                    <span>
+                                        {% if ep.hit_period %}
+                                            <span class="text-success fw-bold">第 {{ ep.hit_period }} 期命中 {{ ep.hit_num }}</span>
+                                        {% else %}
+                                            <span class="text-danger">追 {{ ep.duration }} 期未中(老化)</span>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                {% endfor %}
                             </div>
-                            {% endfor %}
                         </div>
                     </div>
                 </div>
@@ -157,6 +200,7 @@
 
 <!-- 弹窗：信号明细表 -->
 <div class="modal fade" id="detailModal" tabindex="-1">
+
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
@@ -173,6 +217,34 @@
                             <!-- JS填充 -->
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 弹窗：破裂残党历史详细 -->
+<div class="modal fade" id="remnantModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">黄金区破裂残党追踪统计</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6 class="border-bottom pb-2">🟡 中奖破裂 (连爆追踪)</h6>
+                <div class="small mb-3">
+                    <div>触发次数: <strong>29 次</strong></div>
+                    <div>周期胜率: <strong>51.7% (15/29)</strong></div>
+                    <div>单期胜率: <strong class="text-success">6.85%</strong> (打平线 6.52%)</div>
+                    <div>命中分布: 第1期(2), 第3期(3), 第4期(2), 第5期(1), 第6期(1), 第7期(2), 第8期(1), 第9期(3)</div>
+                    <div class="text-danger mt-1">🔴🔴🔴黄金区连爆残党追踪--下注追 (破裂后第 5 期)为停止期🔴🔴🔴</div>
+                </div>
+                <h6 class="border-bottom pb-2 mt-4">🔴 老化破裂 (纯残党)</h6>
+                <div class="small text-muted">
+                    <div>触发次数: <strong>2 次</strong> (样本极少)</div>
+                    <div>单期胜率: 6.25% (低于打平线)</div>
+                    <div class="text-danger mt-1">* 系统已自动剔除该情况，不予追踪提示。</div>
                 </div>
             </div>
         </div>
@@ -212,7 +284,7 @@
                 <div class="table-responsive">
                     <table class="table table-sm table-striped mb-0 text-center cold-table">
                         <thead class="sticky-top">
-                            <tr><th>号码</th><th>当前遗漏</th><th>历史最长</th><th>状态</th></tr>
+                            <tr><th>号码</th><th>当前遗漏</th><th>历史最长</th><th>当前冷度</th><th>级别</th></tr>
                         </thead>
                         <tbody>
                             {% for row in r.rows %}
@@ -225,6 +297,7 @@
                                 </td>
                                 <td class="fs-6 text-danger">{{ row.omission }}</td>
                                 <td class="text-secondary">{{ row.max_gap }}</td>
+                                <td class="fw-bold text-primary">{{ row.coldness }}%</td>
                                 <td>
                                     {% if '★★★' in row.mark %}<span class="badge bg-danger" style="font-weight:normal;">{{ row.mark }}</span>
                                     {% elif '★★' in row.mark %}<span class="badge bg-warning text-dark" style="font-weight:normal;">{{ row.mark }}</span>
@@ -263,9 +336,11 @@ document.addEventListener("DOMContentLoaded", function() {
     const targetIssue = "{{ r.target_issue }}";
     const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
     
-    // 1. 计算更长周期汇总
+    // 1. 计算选中周期汇总
     document.getElementById("btnBacktest").addEventListener("click", function() {
         let periods = [];
+        if(document.getElementById("p90").checked) periods.push(90);
+        if(document.getElementById("p365").checked) periods.push(365);
         if(document.getElementById("p730").checked) periods.push(730);
         if(document.getElementById("pAll").checked) periods.push(0);
         

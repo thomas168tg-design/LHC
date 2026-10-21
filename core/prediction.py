@@ -843,7 +843,32 @@ def run_cold_watch(target_issue=None):
         
     for k in curr_pools: curr_pools[k].sort(key=lambda x: -x[1])
 
-    # --- 生成当前超期遗漏列表 ---
+    # --- 计算当前黄金区连续期数 (gold_streak) ---
+    curr_pool_111_194 = [x[0] for x in (curr_pools["111-142"] + curr_pools["143-194"])]
+    gold_streak = 0
+    if len(curr_pool_111_194) >= 4:
+        gold_streak = 1
+        # 倒推历史，检查每一期是否属于同一个连续的包抄周期
+        for i in range(total - 1, 0, -1):
+            # 获取第 i 期开奖前的历史数据
+            h_nums = numbers[:i]
+            h_last_pos = {}
+            for j, n in enumerate(h_nums): h_last_pos[n] = j
+            h_oms = {n: (len(h_nums) - 1 - h_last_pos[n] if n in h_last_pos else len(h_nums)) for n in range(1, 50)}
+            prev_pool = [n for n in range(1, 50) if 111 <= h_oms[n] <= 194]
+            prev_pool_size = len(prev_pool)
+            
+            # 获取第 i 期的开奖号
+            target_num = numbers[i]
+            
+            # 如果上一期池子 >= 4，且开奖号不在池子里（没中），说明属于同一次连续周期，继续累加
+            if prev_pool_size >= 4 and target_num not in prev_pool:
+                gold_streak += 1
+            else:
+                # 如果池子不足4个，或者开奖号在池子里（命中了，一轮结束），则停止回溯
+                break
+
+    # --- 生成当前超期遗漏列表（加上当前冷度） ---
     rows = []
     sorted_items = sorted(omissions.items(), key=lambda x: -x[1])
     for num, om in sorted_items:
@@ -853,14 +878,80 @@ def run_cold_watch(target_issue=None):
         elif om >= q95: mark = "★★ ≥95%"
         elif om >= q90: mark = "★ ≥90%"
         else: mark = "≥75%"
-        rows.append({"number": num, "omission": om, "max_gap": max_gap_num, "mark": mark})
+        
+        num_history_gaps = per_number_gaps.get(num, [])
+        if num_history_gaps:
+            better_cnt = sum(1 for g in num_history_gaps if g <= om)
+            coldness = round(better_cnt / len(num_history_gaps) * 100, 1)
+        else:
+            coldness = 100.0
+        rows.append({"number": num, "omission": om, "max_gap": max_gap_num, "mark": mark, "coldness": coldness})
         
     # --- 生成冷号分档 ---
     buckets = []
     for name, lo, hi in [("≥99%", q99, 10**9), ("≥95%", q95, q99), ("≥90%", q90, q95), ("≥75%", q75, q90)]:
         nums = [n for n, om in omissions.items() if lo <= om < hi]
         if nums: buckets.append({"name": name, "count": len(nums), "numbers": sorted(nums)})
+        
+    # --- 黄金区破裂残党持久追踪 (只追踪中奖破裂) ---
+    remnant_pool = []
+    remnant_duration = 0
+    curr_pool_111_194 = [x[0] for x in (curr_pools["111-142"] + curr_pools["143-194"])]
     
+    # 往前回溯找最近的破裂点
+    last_decay_idx = -1
+    for i in range(total-1, 1, -1):
+        prev_nums = numbers[:i-1]
+        curr_nums = numbers[:i]
+        
+        prev_last_pos = {}
+        for j, n in enumerate(prev_nums): prev_last_pos[n] = j
+        prev_oms = {n: (len(prev_nums) - 1 - prev_last_pos[n] if n in prev_last_pos else len(prev_nums)) for n in range(1, 50)}
+        prev_pool = [n for n, om in prev_oms.items() if 111 <= om <= 194]
+        
+        curr_last_pos = {}
+        for j, n in enumerate(curr_nums): curr_last_pos[n] = j
+        curr_oms = {n: (len(curr_nums) - 1 - curr_last_pos[n] if n in curr_last_pos else len(curr_nums)) for n in range(1, 50)}
+        curr_pool = [n for n, om in curr_oms.items() if 111 <= om <= 194]
+        
+        if len(prev_pool) >= 4 and len(curr_pool) < 4:
+            # 检查是不是中奖破裂 (开奖号在上一期的池子里)
+            target_num = numbers[i-1]
+            if target_num in prev_pool:
+                last_decay_idx = i - 1 
+                remnant_pool = curr_pool.copy() 
+                break
+            else:
+                # 老化破裂，直接无视
+                break
+            
+    # 检查破裂后是否已经命中，或者超过了10期
+    if last_decay_idx != -1:
+        remnant_duration = total - 1 - last_decay_idx
+        hit_in_tracking = False
+        for step in range(last_decay_idx, total):
+            if numbers[step] in remnant_pool:
+                hit_in_tracking = True
+                break
+        
+        if hit_in_tracking or remnant_duration > 10 or len(remnant_pool) == 0:
+            remnant_pool = []
+            
+    # 如果是当前期刚发生变化，以当前期的池子为准
+    if total >= 1:
+        prev_nums = numbers[:-1]
+        curr_nums = numbers[:]
+        prev_last_pos = {}
+        for j, n in enumerate(prev_nums): prev_last_pos[n] = j
+        prev_oms = {n: (len(prev_nums) - 1 - prev_last_pos[n] if n in prev_last_pos else len(prev_nums)) for n in range(1, 50)}
+        prev_pool = [n for n, om in prev_oms.items() if 111 <= om <= 194]
+        if len(prev_pool) >= 4 and len(curr_pool_111_194) < 4:
+            remnant_pool = curr_pool_111_194.copy()
+            remnant_duration = 0
+        elif remnant_pool and not set(remnant_pool).intersection(set(curr_pool_111_194)):
+            # 如果残党全老化了
+            remnant_pool = []
+
     # --- 防守区核心算法：断档与极值 ---
     current_gap_days = 0
     gap_history = []
@@ -886,13 +977,12 @@ def run_cold_watch(target_issue=None):
     gap_sorted = sorted(gap_history)
     gap_p90 = gap_sorted[int(len(gap_sorted)*0.9)] if gap_sorted else 12
 
-    # ================== 防守区核心算法：断档伏击追踪 ==================
+    # 防守区核心算法：断档伏击追踪
     pool_64_110 = curr_pools["64-110"]
     top3 = pool_64_110[:3]
     top3_nums = [x[0] for x in top3]
     top3_omissions = [x[1] for x in top3]
     
-    # 1. 历史伏击周期追踪
     episodes = []
     current_ep = None
     last_hit_idx = -1
@@ -904,11 +994,9 @@ def run_cold_watch(target_issue=None):
         for j, n in enumerate(h_nums): h_last_pos[n] = j
         h_oms = {n: (len(h_nums) - 1 - h_last_pos[n] if n in h_last_pos else len(h_nums)) for n in range(1, 50)}
         
-        # 判断当期是否开出了 64-110 的号
         is_pool_hit = 64 <= h_oms[h_target] <= 110
         
         if is_pool_hit:
-            # 如果之前有积累的断档，且成功开出了最冷3码之一
             if current_ep is not None:
                 p64 = sorted([n for n, om in h_oms.items() if 64 <= om <= 110], key=lambda n: -h_oms[n])[:3]
                 if h_target in p64:
@@ -917,26 +1005,19 @@ def run_cold_watch(target_issue=None):
                     current_ep["hit_omission"] = int(h_oms[h_target])
                     episodes.append(current_ep)
                 else:
-                    # 区间出了，但不是最冷3码，伏击失败/老化
                     episodes.append(current_ep)
             current_ep = None
             last_hit_idx = i
         else:
-            # 没出号，断档增加
             if last_hit_idx != -1:
                 gap = i - last_hit_idx
                 if current_ep is None:
                     current_ep = {"start_issue": int(history.iloc[i]["期数"]), "duration": 0}
                 current_ep["duration"] = gap
 
-    # 收尾处理
     if current_ep is not None:
         episodes.append(current_ep)
 
-    # 统计近90期的伏击战况
-    recent_eps = [ep for ep in episodes if ep["start_issue"] >= history.iloc[-min(90, total)]["期数"]]
-    
-    # 分类统计不同断档阶段的命中率
     stages = {
         "0-3期(冷却)": {"total": 0, "hits": 0},
         "4-7期(启动)": {"total": 0, "hits": 0},
@@ -961,14 +1042,12 @@ def run_cold_watch(target_issue=None):
             "rate": round(v["hits"] / v["total"] * 100, 1) if v["total"] > 0 else 0
         }
 
-    # 计算当前断档
     current_gap_days = 0
     if last_hit_idx != -1:
         current_gap_days = total - 1 - last_hit_idx
     else:
         current_gap_days = total
 
-    # 判定状态
     defense_status = "⚖️ 常规状态"
     defense_class = "secondary"
     if current_gap_days >= 13:
@@ -988,17 +1067,22 @@ def run_cold_watch(target_issue=None):
         "status_class": defense_class,
         "current_gap": current_gap_days,
         "stage_rates": stage_rates,
-        "recent_episodes": episodes[-10:][::-1]  # 最近10次伏击战
+        "recent_episodes": episodes[-10:][::-1]
     }
 
-    # 默认把 365 期的回测跑好，随主页面一起返回
+    default_backtest = run_cold_backtest(target_issue, [30, 60, 90, 365])
+
+        # 默认把 365 期的回测跑好，随主页面一起返回
     default_backtest = run_cold_backtest(target_issue, [30, 60, 90, 365])
 
     return {
         "target_issue": target_issue, "history_total": total,
         "quantiles": {"q75": q75, "q90": q90, "q95": q95, "q99": q99, "q_max": max(sorted_all) if sorted_all else 0},
         "rows": rows, "buckets": buckets,
-        "current_pool_111_194": [x[0] for x in (curr_pools["111-142"] + curr_pools["143-194"])],
+        "current_pool_111_194": curr_pool_111_194,  # 这里直接用前面算好的变量
+        "gold_streak": gold_streak,                  # ★ 新增这个字段
+        "remnant_pool": remnant_pool,
+        "remnant_duration": remnant_duration,
         "defense_data": defense_data,
         "default_backtest": default_backtest
     }
@@ -1011,14 +1095,18 @@ def run_cold_backtest(target_issue, periods):
     numbers = history["特码"].astype(int).tolist()
     total = len(numbers)
     
-    max_period = max(periods) if periods else 365
-    if max_period == 0: max_period = total
+    # 修复Bug：只要包含0，就必须遍历全历史
+    if 0 in periods:
+        max_period = total
+    else:
+        max_period = max(periods) if periods else 365
+        
     loop_len = min(max_period, total)
-    # 稍微多往前推一点，避免跨界的周期算不准
     start_idx = max(0, total - loop_len - 20)
     
     episodes = []
     current_episode = None
+    # ... 下面的代码保持原样 ...
     
     for i in range(start_idx, total):
         h_nums = numbers[:i]
