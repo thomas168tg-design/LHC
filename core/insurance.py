@@ -103,16 +103,20 @@ def calc_miss_simulation(base_amts, target, max_miss=20):
         profit_high = rev_high - cost
         profit_low = rev_low - cost
         
-        avg_high = (profit_high - L) / T
-        avg_low = (profit_low - L) / T
+        # 核心修改：命中后的总利润 = 当期利润 - 历史累计亏损(L)
+        total_profit_high = profit_high - L
+        total_profit_low = profit_low - L
+        
+        avg_high = total_profit_high / T
+        avg_low = total_profit_low / T
         
         rows.append({
             "T": T,
             "amts": curr_amts,
             "cost": cost,
             "cum_cost": L + cost,
-            "profit_high": profit_high,
-            "profit_low": profit_low,
+            "profit_high": int(total_profit_high),  # 中奖后总利润(高)
+            "profit_low": int(total_profit_low),    # 中奖后总利润(低)
             "avg_high": round(avg_high, 1),
             "avg_low": round(avg_low, 1)
         })

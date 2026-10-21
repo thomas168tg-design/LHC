@@ -332,6 +332,7 @@ def insurance_view():
     max_issue = int(df["期数"].max()) if not df.empty else 0
     result = None
     
+    # 处理 POST 请求（计算、保存、删除）
     if request.method == "POST" and "calc" in request.form:
         model_name = request.form["model_name"]
         target_issue = int(request.form["target_issue"])
@@ -349,14 +350,12 @@ def insurance_view():
         result = insurance.calc_issue(selected_plan, model_name, target_issue, manual_miss, manual_loss, override_target)
         
         if result and not result.get("error"):
-            # 沙盘推演
             if show_sim:
                 plan_amts = next((p["config"]["amts"] for p in plans if p["name"] == selected_plan), [])
                 result["sim_table"] = insurance.calc_miss_simulation(plan_amts, result["target_profit"], 20)
             else:
                 result["sim_table"] = []
                 
-            # 365期历史连黑分布
             if show_365:
                 result["stats_365"] = insurance.get_365_miss(model_name, result["codes_count"], df, events)
             else:
@@ -417,26 +416,139 @@ def insurance_view():
             flash(f"删除战报失败：{type(e).__name__}", "danger")
         return redirect(url_for("insurance_view", plan_name=selected_plan))
 
-    row = query_one("SELECT SUM(cost), SUM(profit) FROM betting_records WHERE plan_name = ?", [selected_plan])
-    pool_cost = row[0] or 0
-    pool_profit = row[1] or 0
-    pool = {"cost": pool_cost, "profit": pool_profit, "loss": -pool_profit if pool_profit < 0 else 0}
-    pool["roi"] = (pool_profit / pool_cost * 100) if pool_cost > 0 else 0
-
-    limit_str = request.values.get("limit", "10")
-    limit = int(limit_str) if limit_str != "all" else 0
-    records = insurance.get_records(selected_plan, limit)
+    # ================= 当前方案极速对账 =================
+    df_dict = df.set_index("期数")["特码"].to_dict()
+    all_records = insurance.get_records(selected_plan, 0)
     
-    for r in records:
-        match = df[df["期数"] == r["issue"]]
-        if not match.empty:
-            r["actual_num"] = int(match.iloc[0]["特码"])
+    real_cost = 0
+    real_profit = 0
+    real_hit_count = 0
+    total_bets = len(all_records)
+    
+    for r in all_records:
+        cost_val = float(r["cost"]) if str(r["cost"]).strip() != "" else 0.0
+        r["cost"] = cost_val
+        
+        actual_num = df_dict.get(r["issue"])
+        
+        if actual_num is not None:
+            r["actual_num"] = actual_num
+            if r.get("bet_numbers") and r.get("bet_numbers") != "None":
+                try:
+                    bet_nums = [int(x) for x in r["bet_numbers"].split(",") if x.strip()]
+                    bet_amts = [float(x) for x in r["bet_amts"].split(",") if x.strip()]
+                    if actual_num in bet_nums:
+                        idx = bet_nums.index(actual_num)
+                        amt = bet_amts[idx]
+                        r["hit"] = True
+                        r["revenue"] = int(46 * amt)
+                        r["profit"] = r["revenue"] - cost_val
+                        real_hit_count += 1
+                    else:
+                        r["hit"] = False
+                        r["revenue"] = 0
+                        r["profit"] = -cost_val
+                except Exception:
+                    r["hit"] = False
+                    r["revenue"] = 0
+                    r["profit"] = -cost_val
+            else:
+                r["hit"] = False
+                r["revenue"] = 0
+                r["profit"] = -cost_val
         else:
             r["actual_num"] = None
+            r["hit"] = False
+            r["revenue"] = 0
+            r["profit"] = -cost_val
+            
+        real_cost += cost_val
+        real_profit += r["profit"]
+        
+    pool = {
+        "cost": int(real_cost),
+        "profit": int(real_profit),
+        "loss": -int(real_profit) if real_profit < 0 else 0,
+        "roi": round((real_profit / real_cost * 100), 2) if real_cost > 0 else 0,
+        "hit_rate": round((real_hit_count / total_bets * 100), 1) if total_bets > 0 else 0
+    }
+    
+    limit_str = request.values.get("limit", "10")
+    limit = int(limit_str) if limit_str != "all" else 0
+    records = all_records[:limit] if limit > 0 else all_records
 
+    # 注意：这里必须包含 return 语句，并且要把所有变量都传进去
     return render_template("insurance.html", plans=plans, selected_plan=selected_plan,
                            result=result, pool=pool, records=records, max_issue=max_issue,
                            limit=limit, models=prediction.ALL_METHODS.keys())
+
+
+# ================= 新增：全局统计异步接口 =================
+@app.route("/api/global_stats")
+@login_required
+def api_global_stats():
+    plans = insurance.get_plans()
+    df = draws.get_all_draws()
+    df_dict = df.set_index("期数")["特码"].to_dict()
+    
+    global_stats = []
+    total_cost_sum = 0
+    total_profit_sum = 0
+    total_hits_sum = 0
+    total_bets_sum = 0
+
+    for p in plans:
+        p_records = insurance.get_records(p["name"], 0)
+        p_cost = 0
+        p_profit = 0
+        p_hits = 0
+        p_bets = 0
+        
+        for r in p_records:
+            cost_val = float(r["cost"]) if str(r["cost"]).strip() != "" else 0.0
+            actual = df_dict.get(r["issue"])
+            
+            if actual is not None:
+                if r.get("bet_numbers") and r["bet_numbers"] != "None":
+                    try:
+                        bet_nums = [int(x) for x in r["bet_numbers"].split(",") if x.strip()]
+                        bet_amts = [float(x) for x in r["bet_amts"].split(",") if x.strip()]
+                        if actual in bet_nums:
+                            idx = bet_nums.index(actual)
+                            amt = bet_amts[idx]
+                            p_hits += 1
+                            prof = (46 * amt) - cost_val
+                        else:
+                            prof = -cost_val
+                    except Exception:
+                        prof = -cost_val
+                else:
+                    prof = -cost_val
+            else:
+                prof = -cost_val
+            
+            p_cost += cost_val
+            p_profit += prof
+            p_bets += 1
+            
+        p_rate = round((p_hits / p_bets * 100), 1) if p_bets > 0 else 0
+        global_stats.append({
+            "name": p["name"], "cost": int(p_cost), "profit": int(p_profit),
+            "hits": p_hits, "bets": p_bets, "rate": p_rate
+        })
+        
+        total_cost_sum += p_cost
+        total_profit_sum += p_profit
+        total_hits_sum += p_hits
+        total_bets_sum += p_bets
+
+    global_summary = {
+        "cost": int(total_cost_sum), "profit": int(total_profit_sum),
+        "hits": total_hits_sum, "bets": total_bets_sum,
+        "rate": round((total_hits_sum / total_bets_sum * 100), 1) if total_bets_sum > 0 else 0
+    }
+    
+    return jsonify({"stats": global_stats, "summary": global_summary})
 
 # ============================================================
 #            本地测试入口
