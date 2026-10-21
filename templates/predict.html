@@ -73,6 +73,7 @@
 </div>
 {% else %}
 
+<!-- ★ 标题加了背景色和左边框 -->
 <div class="card mb-3">
     <div class="card-body">
         <div class="row">
@@ -91,7 +92,7 @@
 <!-- 信号 -->
 <div class="card mb-3">
     <div class="card-body">
-        <h6 class="card-title">信号（基于 {{ r.display_method }}）</h6>
+        <h6 class="card-title bg-light p-2 rounded border-start border-4 border-primary fw-bold">信号（基于 {{ r.display_method }}）</h6>
         <table class="table table-sm mb-0">
             <thead>
                 <tr>
@@ -124,7 +125,7 @@
 <!-- 下注号码 -->
 <div class="card mb-3">
     <div class="card-body">
-        <h6 class="card-title">下注号码（{{ r.display_method }}）</h6>
+        <h6 class="card-title bg-light p-2 rounded border-start border-4 border-primary fw-bold">下注号码（{{ r.display_method }}）</h6>
 
         {% for k in [5, 10, 12, 20] %}
         <div class="mb-3">
@@ -144,7 +145,7 @@
 <!-- 所有模型 -->
 <div class="card mb-3">
     <div class="card-body">
-        <h6 class="card-title">所有模型 Top5 / Top10 / Top15 / Top20（增量）</h6>
+        <h6 class="card-title bg-light p-2 rounded border-start border-4 border-primary fw-bold">所有模型 Top5 / Top10 / Top15 / Top20（增量）</h6>
         <div class="table-responsive">
         <table class="table table-sm align-middle mb-0">
             <thead>
@@ -176,7 +177,7 @@
 <!-- 多模型共识（横排：上号下票） -->
 <div class="card mb-3">
     <div class="card-body">
-        <h6 class="card-title">多模型共识 Top{{ r.consensus_n }}</h6>
+        <h6 class="card-title bg-light p-2 rounded border-start border-4 border-primary fw-bold">多模型共识 Top{{ r.consensus_n }}</h6>
         <div class="table-responsive">
         <table class="table table-sm table-bordered text-center mb-0">
             <tbody>
@@ -201,12 +202,14 @@
 <!-- 最近命中 -->
 <div class="card mb-3">
     <div class="card-body">
-        <h6 class="card-title">最近 {{ r.recent_n }} 期命中（{{ r.display_method }}）</h6>
+        <h6 class="card-title bg-light p-2 rounded border-start border-4 border-primary fw-bold">最近 {{ r.recent_n }} 期命中（{{ r.display_method }}）</h6>
         <div class="scroll-box" style="max-height: 700px; overflow-y: auto;">
-            <table class="table table-sm mb-0">
+            <table class="table table-sm mb-0 text-center">
                 <thead>
-                    <tr><th>期数</th><th>实际</th><th>排名</th>
-                        <th>T5</th><th>T10</th><th>T20</th></tr>
+                    <tr>
+                        <th>期数</th><th>实际</th><th>排名</th>
+                        <th>T5</th><th>T10</th><th>T12</th><th>T20</th>
+                    </tr>
                 </thead>
                 <tbody>
                 {% for x in r.recent_history[-r.recent_n:]|reverse %}
@@ -214,9 +217,11 @@
                         <td>{{ x.issue }}</td>
                         <td><span class="num-ball">{{ x.actual }}</span></td>
                         <td>{{ x.pos }}</td>
-                        <td>{% if x.t5 %}✓{% else %}—{% endif %}</td>
-                        <td>{% if x.t10 %}✓{% else %}—{% endif %}</td>
-                        <td>{% if x.t20 %}✓{% else %}—{% endif %}</td>
+                        <td>{% if x.pos <= 5 %}✓{% else %}—{% endif %}</td>
+                        <td>{% if x.pos <= 10 %}✓{% else %}—{% endif %}</td>
+                        <!-- ★ 新增 T12 -->
+                        <td>{% if x.pos <= 12 %}✓{% else %}—{% endif %}</td>
+                        <td>{% if x.pos <= 20 %}✓{% else %}—{% endif %}</td>
                     </tr>
                 {% endfor %}
                 </tbody>
@@ -228,7 +233,7 @@
 <!-- 完整49 -->
 <div class="card mb-3">
     <div class="card-body">
-        <h6 class="card-title">完整 49 号排序（{{ r.display_method }}）</h6>
+        <h6 class="card-title bg-light p-2 rounded border-start border-4 border-primary fw-bold">完整 49 号排序（{{ r.display_method }}）</h6>
         <div>
             {% for n in r.ranked %}{{ ball(n, loop.index0) }}{% endfor %}
         </div>
