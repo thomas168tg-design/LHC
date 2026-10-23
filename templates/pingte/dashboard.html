@@ -1,0 +1,360 @@
+{% extends 'pingte/base.html' %}
+
+{% block content %}
+<div id="draws-data" data-json='{{ draws | tojson }}' style="display:none;"></div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="bg-light p-2 rounded border-start border-4 border-primary fw-bold mb-0">
+        平特一肖 · 开奖数据（共 {{ total }} 期）
+    </h4>
+    <button id="btnUpdate" class="btn btn-primary">立即更新数据</button>
+</div>
+
+<!-- 查询表单 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" action="/pingte/" class="d-flex flex-wrap align-items-center gap-2" id="query-form">
+            <label class="fw-bold text-secondary mb-0">开始期:</label>
+            <input type="text" name="start_issue" id="start-input" class="form-control form-control-sm" style="width: 110px; font-size: 16px; font-weight: bold;" value="{{ start_issue }}">
+            
+            <label class="fw-bold text-secondary mb-0 ms-2">结束期:</label>
+            <input type="text" name="end_issue" id="end-input" class="form-control form-control-sm" style="width: 110px; font-size: 16px; font-weight: bold;" value="{{ end_issue }}">
+            
+            <input type="hidden" name="is_custom" id="is-custom" value="0">
+            <button type="button" class="btn btn-primary ms-1" onclick="submitCustom()">查询</button>
+
+            <label class="fw-bold text-secondary mb-0 ms-3">查看范围:</label>
+            <select name="range_type" id="range-select" class="form-select form-select-sm" style="width: 130px; font-size: 16px;" onchange="submitRange()">                <option value="20" {% if range_type == '20' %}selected{% endif %}>近20期</option>
+                <option value="60" {% if range_type == '60' %}selected{% endif %}>近60期</option>
+                <option value="90" {% if range_type == '90' %}selected{% endif %}>近90期</option>
+                <option value="180" {% if range_type == '180' %}selected{% endif %}>近180期</option>
+                <option value="365" {% if range_type == '365' %}selected{% endif %}>近365期</option>
+                <option value="2026" {% if range_type == '2026' %}selected{% endif %}>2026年</option>
+                <option value="2025" {% if range_type == '2025' %}selected{% endif %}>2025年</option>
+                <option value="2024" {% if range_type == '2024' %}selected{% endif %}>2024年</option>
+                <option value="2023" {% if range_type == '2023' %}selected{% endif %}>2023年</option>
+                <option value="all" {% if range_type == 'all' %}selected{% endif %}>全历史</option>
+            </select>
+        </form>
+    </div>
+</div>
+
+<!-- 条件筛选 & 走势图按钮 -->
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+    <span class="fw-bold text-secondary me-1">条件 (可多选):</span>
+    <button class="btn btn-sm btn-outline-secondary rounded-pill" onclick="clearAll()" id="btn-clear">清除</button>
+    {% for z in zodiacs %}
+    <button class="btn btn-sm btn-outline-secondary rounded-pill zodiac-btn" 
+            data-zodiac="{{ z }}" onclick="toggleZodiac('{{ z }}')">{{ z }}</button>
+    {% endfor %}
+    
+    <button class="btn btn-sm btn-success ms-auto" onclick="showTrend()" style="display: none;" id="btn-trend">走势图</button>
+</div>
+
+<!-- 详情面板容器 (支持多选排布) -->
+<div id="detail-container" class="row g-3 mb-3"></div>
+
+<!-- 走势图 Modal -->
+<div class="modal fade" id="trendModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">生肖趋势图 (平滑移动平均)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3 d-flex align-items-center">
+                    <label class="fw-bold me-2 mb-0">平滑步长:</label>
+                    <select id="smooth-step" class="form-select form-select-sm" style="width: 120px;" onchange="updateChart()">
+                        <option value="1">不处理(每期)</option>
+                        <option value="3">3 期均线</option>
+                        <option value="5" selected>5 期均线</option>
+                        <option value="10">10 期均线</option>
+                    </select>
+                </div>
+                <div style="height: 450px; position: relative;">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据表格 -->
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-striped mb-0 text-center align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>期号</th>
+                        <th>日期</th>
+                        <th class="text-start">开奖号码 (平码 + 特码)</th>
+                        <th>当年太岁</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in draws %}
+                    <tr>
+                        <td>{{ d.issue }}</td>
+                        <td>{{ d.date }}</td>
+                        <td class="text-start">
+                            {% for i in range(7) %}
+                                {% if i == 6 %}<span class="mx-2">|</span>{% endif %}
+                                <span class="num-ball-wrapper" data-zodiac="{{ d.num_zodiacs[i] }}">
+                                    <span class="num-ball bg-{{ d.num_zodiacs[i] }}" {% if i == 6 %}style="border: 2px solid #333; box-shadow: 0 0 4px rgba(0,0,0,0.5);"{% endif %}>{{ d.nums[i] }}</span>
+                                </span>
+                            {% endfor %}
+                        </td>
+                        <td class="fw-bold text-danger">{{ d.year_zodiac }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .bg-鼠 { background-color: #64748b !important; }
+    .bg-牛 { background-color: #8b5cf6 !important; }
+    .bg-虎 { background-color: #f59e0b !important; }
+    .bg-兔 { background-color: #10b981 !important; }
+    .bg-龙 { background-color: #ef4444 !important; }
+    .bg-蛇 { background-color: #06b6d4 !important; }
+    .bg-马 { background-color: #3b82f6 !important; }
+    .bg-羊 { background-color: #14b8a6 !important; }
+    .bg-猴 { background-color: #eab308 !important; }
+    .bg-鸡 { background-color: #f97316 !important; }
+    .bg-狗 { background-color: #475569 !important; }
+    .bg-猪 { background-color: #f43f5e !important; }
+    
+    .num-ball { transition: all 0.2s; width: 32px; height: 32px; line-height: 32px; font-size: 15px; margin: 0 2px; }
+    
+    /* 详情面板样式重写 */
+    .detail-card { border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .detail-header { padding: 8px 12px; font-weight: bold; color: white; display: flex; justify-content: space-between; align-items: center; }
+    .detail-stats { display: flex; background: #f8f9fa; border-bottom: 1px solid #eee; padding: 10px 0; text-align: center; }
+    .detail-stats > div { flex: 1; border-right: 1px solid #ddd; }
+    .detail-stats > div:last-child { border-right: none; }
+    .stat-val { font-size: 18px; font-weight: bold; margin-bottom: 0; }
+    .stat-label { font-size: 12px; color: #6c757d; margin-bottom: 0; }
+    .badge-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; font-size: 13px; }
+</style>
+
+<script>
+const rawDraws = JSON.parse(document.getElementById('draws-data').dataset.json);
+const allZodiacs = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"];
+let selectedZodiacs = new Set(); 
+let chartInstance = null;
+
+// 表单提交逻辑
+function submitCustom() { document.getElementById('is-custom').value = '1'; document.getElementById('query-form').submit(); }
+function submitRange() { document.getElementById('is-custom').value = '0'; document.getElementById('query-form').submit(); }
+
+// 多选控制
+function toggleZodiac(z) {
+    const btn = document.querySelector(`.zodiac-btn[data-zodiac="${z}"]`);
+    if (selectedZodiacs.has(z)) {
+        selectedZodiacs.delete(z);
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-outline-secondary');
+    } else {
+        selectedZodiacs.add(z);
+        btn.classList.remove('btn-outline-secondary');
+        btn.classList.add('btn-primary');
+    }
+    renderDetails();
+}
+
+function clearAll() {
+    selectedZodiacs.clear();
+    document.querySelectorAll('.zodiac-btn').forEach(btn => {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-outline-secondary');
+    });
+    renderDetails();
+}
+
+// 渲染多卡片详情
+function renderDetails() {
+    const container = document.getElementById('detail-container');
+    const btnTrend = document.getElementById('btn-trend');
+    
+    if (selectedZodiacs.size === 0) {
+        container.innerHTML = '';
+        btnTrend.style.display = 'none';
+        updateBallsFilter();
+        return;
+    }
+    
+    btnTrend.style.display = 'inline-block';
+    let html = '';
+    const issueRangeText = rawDraws.length > 0 ? ` (${rawDraws[rawDraws.length-1].issue} - ${rawDraws[0].issue})` : '';
+
+    selectedZodiacs.forEach(z => {
+        let hits = 0, totalAppear = 0;
+        let streakMap = {}, missMap = {};
+        let curStreak = 0, curMiss = 0;
+        let zCounts = {}; allZodiacs.forEach(x => zCounts[x] = 0);
+        
+        rawDraws.forEach(d => {
+            d.num_zodiacs.forEach(x => { zCounts[x]++; });
+            let count = d.num_zodiacs.filter(x => x === z).length;
+            totalAppear += count;
+            
+            if (count > 0) {
+                hits++;
+                if (curMiss > 0) { missMap[curMiss] = (missMap[curMiss] || 0) + 1; curMiss = 0; }
+                curStreak++;
+            } else {
+                if (curStreak > 0) { streakMap[curStreak] = (streakMap[curStreak] || 0) + 1; curStreak = 0; }
+                curMiss++;
+            }
+        });
+        if (curStreak > 0) streakMap[curStreak] = (streakMap[curStreak] || 0) + 1;
+        if (curMiss > 0) missMap[curMiss] = (missMap[curMiss] || 0) + 1;
+
+        let rank = allZodiacs.sort((a, b) => zCounts[b] - zCounts[a]).indexOf(z) + 1;
+        
+        // 颜色映射
+        const colorMap = { "鼠": "#64748b", "牛": "#8b5cf6", "虎": "#f59e0b", "兔": "#10b981", "龙": "#ef4444", "蛇": "#06b6d4", "马": "#3b82f6", "羊": "#14b8a6", "猴": "#eab308", "鸡": "#f97316", "狗": "#475569", "猪": "#f43f5e" };
+        
+        let sHtml = Object.keys(streakMap).sort((a,b)=>a-b).map(k => `<span class="badge bg-success">连中${k}期:${streakMap[k]}次</span>`).join('');
+        if(!sHtml) sHtml = '<span class="text-muted">无</span>';
+        
+        let mHtml = Object.keys(missMap).sort((a,b)=>a-b).map(k => `<span class="badge bg-secondary">连黑${k}期:${missMap[k]}次</span>`).join('');
+        if(!mHtml) mHtml = '<span class="text-muted">无</span>';
+
+        html += `
+        <div class="col-md-6"> <!-- 改为一行两个 -->
+            <div class="detail-card">
+                <div class="detail-header" style="background-color: ${colorMap[z]}; font-size: 18px; padding: 10px 15px;">
+                    <span>${z}肖 - 详情面板${issueRangeText}</span>
+                    <button class="btn btn-sm btn-light py-1" onclick="copySpecific('${z}')">复制</button>
+                </div>
+                <div class="detail-stats" style="padding: 15px 0;">
+                    <div><p class="stat-val text-primary" style="font-size: 26px;">${hits}</p><p class="stat-label" style="font-size: 15px;">命中</p></div>
+                    <div><p class="stat-val text-success" style="font-size: 26px;">${(hits/rawDraws.length*100).toFixed(1)}%</p><p class="stat-label" style="font-size: 15px;">比例</p></div>
+                    <div><p class="stat-val text-danger" style="font-size: 26px;">${totalAppear}</p><p class="stat-label" style="font-size: 15px;">出号数</p></div>
+                    <div><p class="stat-val text-warning" style="font-size: 26px;">第${rank}名</p><p class="stat-label" style="font-size: 15px;">排行</p></div>
+                </div>
+                <div class="badge-grid border-bottom" style="padding: 15px;">
+                    <div class="w-100 fw-bold text-success" style="font-size: 15px; margin-bottom: 8px;">🔥 连中详细</div>
+                    ${sHtml.replace(/class="badge/g, 'style="font-size: 14px; padding: 6px 10px;" class="badge')}
+                </div>
+                <div class="badge-grid" style="padding: 15px;">
+                    <div class="w-100 fw-bold text-danger" style="font-size: 15px; margin-bottom: 8px;">❄️ 连黑详细</div>
+                    ${mHtml.replace(/class="badge/g, 'style="font-size: 14px; padding: 6px 10px;" class="badge')}
+                </div>
+            </div>
+        </div>`;
+    });
+    
+    container.innerHTML = html;
+    updateBallsFilter();
+}
+
+// 置灰筛选
+function updateBallsFilter() {
+    document.querySelectorAll('.num-ball-wrapper').forEach(wrapper => {
+        const ball = wrapper.querySelector('.num-ball');
+        const zodiac = wrapper.getAttribute('data-zodiac');
+        
+        if (selectedZodiacs.size === 0 || selectedZodiacs.has(zodiac)) {
+            ball.classList.add('bg-' + zodiac);
+            ball.classList.remove('bg-secondary', 'opacity-50');
+        } else {
+            ball.classList.remove('bg-' + zodiac);
+            ball.classList.add('bg-secondary', 'opacity-50');
+        }
+    });
+}
+
+function copySpecific(z) {
+    let text = `【${z}肖详情】\n`;
+    let cards = document.querySelectorAll('.detail-card');
+    // 简单粗暴的复制逻辑，只复制对应卡片
+    for(let card of cards) {
+        if(card.innerText.includes(z + '肖')) {
+            navigator.clipboard.writeText(card.innerText).then(() => alert('已复制!'));
+            break;
+        }
+    }
+}
+
+// 走势图生成 (平滑 MA)
+function showTrend() {
+    let modal = new bootstrap.Modal(document.getElementById('trendModal'));
+    modal.show();
+    setTimeout(updateChart, 200);
+}
+
+function updateChart() {
+    if (selectedZodiacs.size === 0) return;
+    const step = parseInt(document.getElementById('smooth-step').value);
+    
+    let reversedDraws = [...rawDraws].reverse();
+    let labels = reversedDraws.map(d => d.issue.slice(-3));
+    
+    const colorMap = { "鼠": "#64748b", "牛": "#8b5cf6", "虎": "#f59e0b", "兔": "#10b981", "龙": "#ef4444", "蛇": "#06b6d4", "马": "#3b82f6", "羊": "#14b8a6", "猴": "#eab308", "鸡": "#f97316", "狗": "#475569", "猪": "#f43f5e" };
+    
+    let datasets = [];
+    selectedZodiacs.forEach(z => {
+        // 原始数据：每期是否命中（1或0）
+        let raw = reversedDraws.map(d => d.num_zodiacs.filter(x => x === z).length > 0 ? 1 : 0);
+        
+        let data = [];
+        if (step === 1) {
+            // 如果要看原始，用 0/1 会导致线段极长，所以我们可以做累积或平滑处理
+            data = raw;
+        } else {
+            // 滑动窗口求和
+            for (let i = 0; i < raw.length; i++) {
+                let start = Math.max(0, i - step + 1);
+                let sum = raw.slice(start, i + 1).reduce((a, b) => a + b, 0);
+                data.push(sum);
+            }
+        }
+        
+        datasets.push({
+            label: z, data: data, borderColor: colorMap[z], backgroundColor: colorMap[z] + '22', 
+            borderWidth: 2, tension: 0.4, pointRadius: 1, fill: true
+        });
+    });
+    
+    let canvas = document.getElementById('trendChart');
+    if (chartInstance) chartInstance.destroy();
+    
+    chartInstance = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: { y: { beginAtZero: true, title: {display: true, text: `近 ${step} 期命中次数`} } }
+        }
+    });
+}
+
+// 初始化
+if (rawDraws.length > 0) {
+    // 默认选中走势图或者什么都不选
+}
+
+// 更新按钮
+document.getElementById('btnUpdate').addEventListener('click', function() {
+    const btn = this; btn.disabled = true; btn.innerText = '更新中...';
+    fetch('/pingte/api/update', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === 'ok') { alert('更新成功！新增 ' + data.added + ' 期'); window.location.reload(); }
+            else { alert('更新失败'); btn.disabled = false; btn.innerText = '立即更新数据'; }
+        })
+        .catch(err => { alert('网络错误'); btn.disabled = false; btn.innerText = '立即更新数据'; });
+});
+</script>
+{% endblock %}

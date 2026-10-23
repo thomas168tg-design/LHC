@@ -10,6 +10,7 @@ from functools import wraps
 
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, flash, jsonify)
+from blueprints.pingte import pingte_bp
 
 from config import LOGIN_PASSWORD, SECRET_KEY
 from core import draws, prediction, insurance
@@ -17,6 +18,10 @@ from database import init_tables, query_one, execute
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+
+# ================= 注册平特一肖蓝图 =================
+app.register_blueprint(pingte_bp)
+# ====================================================
 
 # 确保启动时建表
 with app.app_context():

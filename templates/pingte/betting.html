@@ -1,0 +1,207 @@
+{% extends 'pingte/base.html' %}
+
+{% block content %}
+<div class="row">
+    <!-- 左侧：下注计算器 -->
+    <div class="col-md-5">
+        <div class="card shadow-sm border-primary">
+            <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between">
+                <span>下注台 (当前太岁: {{ latest_yz }})</span>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info py-2 d-flex justify-content-between align-items-center">
+                    <span>当前模型历史连黑: <strong class="fs-5 text-danger">{{ streak }} 期</strong></span>
+                </div>
+
+                <!-- 近20期前3名详细数据 -->
+                <div class="mb-3 p-2 bg-light rounded border border-warning">
+                    <div class="fw-bold text-secondary mb-2 border-bottom pb-1"><i class="bi bi-fire"></i> 近20期热度排行</div>
+                    {% for t in top3 %}
+                        <div class="d-flex justify-content-between align-items-center small mb-1">
+                            <span>
+                                <span class="badge bg-{% if loop.index==1 %}danger{% elif loop.index==2 %}warning text-dark{% else %}info text-dark{% endif %} me-1">
+                                    排{{ loop.index }}
+                                </span>
+                                <strong>{{ t.zodiac }}</strong> (开{{ t.count }}次)
+                            </span>
+                            <span class="text-muted">
+                                当前连黑: <strong class="{% if t.cur_miss > 0 %}text-danger{% endif %}">{{ t.cur_miss }}</strong>
+                                <span class="mx-1">|</span> 最大连黑: {{ t.max_miss }}
+                            </span>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <div class="mb-3 row">
+                    <div class="col-5">
+                        <label class="fw-bold mb-1">下注期数:</label>
+                        <input type="text" id="issue-input" class="form-control fw-bold" value="{{ latest_issue }}">
+                    </div>
+                    <div class="col-7">
+                        <label class="fw-bold mb-1">下注策略:</label>
+                        <select class="form-select" id="strategy" onchange="calcBet()">
+                            <option value="flat">平注 (黑多少下基础额)</option>
+                            <option value="1_2_3">递进 (黑1下2倍,黑2下3倍)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="fw-bold mb-1">选择生肖:</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for z in zodiacs %}
+                        <input type="radio" class="btn-check" name="zodiac-options" id="z_{{ z }}" value="{{ z }}" onclick="updateOdds()">
+                        <label class="btn btn-outline-primary rounded-pill px-3" for="z_{{ z }}">{{ z }}</label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="fw-bold">基础金额:</label>
+                    <input type="number" id="base-amount" class="form-control form-control-lg fw-bold text-danger mb-2" value="100" step="5" oninput="calcBet()">
+                    
+                    <!-- 游戏机快捷按钮 -->
+                    <div class="btn-group w-100" role="group">
+                        <button type="button" class="btn btn-outline-secondary" onclick="addAmount(0)">归零</button>
+                        <button type="button" class="btn btn-outline-primary" onclick="addAmount(100)">+100</button>
+                        <button type="button" class="btn btn-outline-primary" onclick="addAmount(200)">+200</button>
+                        <button type="button" class="btn btn-outline-primary" onclick="addAmount(500)">+500</button>
+                        <button type="button" class="btn btn-outline-primary" onclick="addAmount(1000)">+1000</button>
+                    </div>
+                </div>
+
+                <div class="bg-light p-3 rounded border mb-3">
+                    <h5 class="mb-0">本期投入: <span id="actual-bet" class="text-primary fw-bold fs-3">0</span> 元</h5>
+                    <small id="odds-hint" class="text-muted">选中生肖后自动显示赔率</small>
+                </div>
+
+                <button class="btn btn-danger w-100 py-2 fs-5 fw-bold" onclick="saveBet()">记录下注</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：历史战报 -->
+    <div class="col-md-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white d-flex justify-content-between">
+                <span class="fw-bold">历史战报</span>
+                <span>总盈亏: <strong class="{% if total_profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ total_profit|round(1) }}</strong> 元</span>
+            </div>
+            <div class="card-body p-0" style="max-height: 650px; overflow-y: auto;">
+                <table class="table table-sm text-center align-middle mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th>期号</th>
+                            <th>生肖</th>
+                            <th>投入</th>
+                            <th>赔率</th>
+                            <th>结果</th>
+                            <th>盈亏</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in records %}
+                        <tr id="row-{{ r[0] }}">
+                            <td>{{ r[0] }}</td>
+                            <td><span class="badge bg-secondary">{{ r[1] }}</span></td>
+                            <td>{{ r[2] }}</td>
+                            <td>{{ r[3] }}</td>
+                            <td>
+                                {% if r[4] == 1 %}<span class="text-success fw-bold">中</span>
+                                {% elif r[4] == 0 %}<span class="text-danger fw-bold">黑</span>
+                                {% else %}<span class="text-warning fw-bold">待结算</span>{% endif %}
+                            </td>
+                            <td class="{% if r[5] and r[5] > 0 %}text-success{% elif r[5] and r[5] < 0 %}text-danger{% endif %}">
+                                {{ r[5]|round(1) if r[5] is not none else '' }}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteBet('{{ r[0] }}')">删除</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function addAmount(val) {
+    const input = document.getElementById('base-amount');
+    if (val === 0) { input.value = 0; } 
+    else {
+        let current = parseInt(input.value) || 0;
+        input.value = current + val;
+    }
+    calcBet();
+}
+
+function updateOdds() {
+    const zodiac = document.querySelector('input[name="zodiac-options"]:checked').value;
+    const yz = "{{ latest_yz }}";
+    const hint = document.getElementById('odds-hint');
+    if (zodiac === yz) {
+        hint.innerHTML = `赔率: <strong class="text-warning">1.8</strong> (本命肖)`;
+    } else {
+        hint.innerHTML = `赔率: <strong class="text-success">2.0</strong> (普通肖)`;
+    }
+    calcBet();
+}
+
+function calcBet() {
+    let base = parseFloat(document.getElementById('base-amount').value) || 0;
+    base = Math.round(base / 5) * 5;
+    document.getElementById('base-amount').value = base;
+
+    const streak = {{ streak }};
+    const strategy = document.getElementById('strategy').value;
+    
+    let actual = base;
+    if (strategy === '1_2_3' && streak > 0) {
+        if (streak === 1) actual = base * 2;
+        else if (streak === 2) actual = base * 3;
+        else if (streak >= 3) actual = base * 4;
+    }
+    document.getElementById('actual-bet').innerText = actual;
+}
+
+function saveBet() {
+    const selected = document.querySelector('input[name="zodiac-options"]:checked');
+    if (!selected) { alert('请先选择一个生肖！'); return; }
+    
+    const zodiac = selected.value;
+    const base = parseFloat(document.getElementById('base-amount').value) || 100;
+    const streak = {{ streak }};
+    const actual = parseFloat(document.getElementById('actual-bet').innerText);
+    const issue = document.getElementById('issue-input').value.trim();
+    
+    if (actual <= 0) { alert('下注金额必须大于 0'); return; }
+    
+    fetch('/pingte/api/save_bet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ issue, zodiac, base, streak, bet: actual })
+    }).then(res => res.json()).then(data => {
+        if(data.status === 'ok') { window.location.reload(); } 
+        else { alert('保存失败: ' + data.msg); }
+    });
+}
+
+function deleteBet(issue) {
+    if (!confirm(`确定要删除第 ${issue} 期的战报吗？`)) return;
+    fetch('/pingte/api/delete_bet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ issue })
+    }).then(res => res.json()).then(data => {
+        if(data.status === 'ok') { document.getElementById('row-' + issue).remove(); }
+    });
+}
+
+window.onload = function() { calcBet(); };
+</script>
+{% endblock %}
