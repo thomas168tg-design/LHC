@@ -55,7 +55,6 @@
                 <div class="sub-text">累计盈亏</div>
                 <div class="val-text {% if pool.profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ pool.profit }}</div>
             </div>
-            <!-- ★ 把总战线改成命中率 -->
             <div class="col-4">
                 <div class="sub-text">当前命中率</div>
                 <div class="val-text text-info">{{ pool.hit_rate }}%</div>
@@ -102,6 +101,7 @@
                     <div class="col-12 mt-3 bg-light rounded p-2 border">
                         <div class="small text-muted mb-2">
                             自动算：连黑 {{ result.auto_miss if result else '?' }} 期，预估亏 {{ result.auto_loss if result else '?' }} 元。
+                            <span class="text-danger fw-bold d-block mt-1">⚠️ 若下方修改了实际下注额，建议在上面的【自定亏损】中填入真实历史亏损，以确保合计投入计算精准。</span>
                         </div>
                         <div class="row g-2">
                             <div class="col-4">
@@ -124,7 +124,7 @@
                     <input type="hidden" name="plan_name" value="{{ result.plan_name }}">
                     <input type="hidden" name="actual_num" value="{{ result.actual_num if result.actual_num else '' }}">
                     <input type="hidden" name="bet_numbers" value="{{ result.bet_numbers|join(',') }}">
-                    
+
                     <!-- 实时统计面板 -->
                     <div class="row text-center bg-primary bg-opacity-10 py-2 rounded mb-3">
                         <div class="col-4">
@@ -393,7 +393,7 @@
             </div>
         </div>
 
-        <!-- ★ 全局方案统计 (点击折叠懒加载) ★ -->
+        <!-- 全局方案统计 (点击折叠懒加载) -->
         <div class="card shadow-sm mt-3" id="globalStatsArea">
             <div class="card-header bg-festive fw-bold d-flex justify-content-between align-items-center" 
                  data-bs-toggle="collapse" data-bs-target="#globalStatsCollapse" style="cursor: pointer;">
@@ -441,19 +441,30 @@ function updateStats() {
     let totalCost = 0;
     let maxAmt = 0;
     let minAmt = 999999;
+    let activeCount = 0;
     
     inputs.forEach(inp => {
         let v = parseInt(inp.value) || 0;
         totalCost += v;
         if(v > maxAmt) maxAmt = v;
-        if(v < minAmt) minAmt = v;
+        if(v > 0) {
+            activeCount++;
+            if(v < minAmt) minAmt = v;
+        }
     });
+    
+    if (activeCount === 0) minAmt = 0;
 
     let historyLoss = parseFloat("{{ result.history_loss if result else 0 }}");
     let totalNeed = totalCost + historyLoss;
 
     document.getElementById('live_cost').innerText = totalCost;
     document.getElementById('live_need').innerText = totalNeed;
+
+    if (totalCost === 0) {
+        document.getElementById('live_profit').innerText = "--";
+        return;
+    }
 
     let revHigh = 46 * maxAmt;
     let revLow = 46 * minAmt;
@@ -530,7 +541,7 @@ function printStats() {
     }, 300);
 }
 
-// 复制逻辑补全
+// 智能分组复制格式
 function copyRecord(numbers, amts, issue) {
     if (!numbers || numbers === 'None') return alert("无数据");
     let ns = numbers.split(',');
@@ -549,6 +560,7 @@ function copyRecord(numbers, amts, issue) {
     
     let text = `【${issue}期下注单】=总计${totalCost}元\n`;
     
+    // 按金额从大到小排
     let sortedAmts = Object.keys(groups).map(Number).sort((a,b) => b-a);
     
     for(let amt of sortedAmts){

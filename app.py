@@ -12,7 +12,6 @@ from flask import (Flask, render_template, request, redirect,
                    url_for, session, flash, jsonify)
 
 from config import LOGIN_PASSWORD, SECRET_KEY
-from core import draws, prediction
 from core import draws, prediction, insurance
 from database import init_tables, query_one, execute
 
@@ -26,18 +25,15 @@ with app.app_context():
     except Exception as e:
         print(f"初始化数据库失败: {e}")
 
-
 # ============================================================
 #            系统接口
 # ============================================================
 
 @app.route("/api/memory")
 def api_memory():
-    """实时内存监控接口"""
     process = psutil.Process(os.getpid())
     mem_mb = process.memory_info().rss / 1024 / 1024
     return jsonify({"mem": round(mem_mb, 1)})
-
 
 # ============================================================
 #            登录鉴权
@@ -51,7 +47,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return wrapper
 
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -63,13 +58,11 @@ def login():
         flash("密码错误", "danger")
     return render_template("login.html")
 
-
 @app.route("/logout")
 def logout():
     session.clear()
     flash("已退出登录", "info")
     return redirect(url_for("login"))
-
 
 # ============================================================
 #            首页
@@ -80,7 +73,6 @@ def logout():
 def index():
     s = draws.stats()
     return render_template("index.html", stats=s)
-
 
 # ============================================================
 #            数据管理
@@ -105,7 +97,6 @@ def draws_list():
     s = draws.stats()
     return render_template("draws.html", records=records, latest=latest, stats=s, limit=limit)
 
-
 @app.route("/draws/update", methods=["POST"])
 @login_required
 def draws_update():
@@ -114,20 +105,12 @@ def draws_update():
         r = draws.update_from_web(max_new=20)
         elapsed = round(time.time() - t0, 1)
         if r["added"] > 0:
-            flash(
-                f"更新完成：新增 {r['added']} 期 "
-                f"（{r['first_issue']} → {r['last_issue']}），耗时 {elapsed}s",
-                "success",
-            )
+            flash(f"更新完成：新增 {r['added']} 期（{r['first_issue']} → {r['last_issue']}），耗时 {elapsed}s", "success")
         else:
-            flash(
-                f"没有新期，本地已是最新（{r['latest_before']}），耗时 {elapsed}s",
-                "info",
-            )
+            flash(f"没有新期，本地已是最新（{r['latest_before']}），耗时 {elapsed}s", "info")
     except Exception as e:
         flash(f"更新失败：{type(e).__name__}: {e}", "danger")
     return redirect(url_for("draws_list"))
-
 
 @app.route("/draws/add", methods=["POST"])
 @login_required
@@ -142,7 +125,6 @@ def draws_add():
     except Exception as e:
         flash(f"录入失败：{e}", "danger")
     return redirect(url_for("draws_list"))
-
 
 # ============================================================
 #            单期预测
@@ -180,9 +162,7 @@ def predict():
 
     t0 = time.time()
     try:
-        r = prediction.run_unified_prediction(
-            target_issue=target, display_method=display_method,
-        )
+        r = prediction.run_unified_prediction(target_issue=target, display_method=display_method)
     except Exception as e:
         flash(f"预测失败：{type(e).__name__}: {e}", "danger")
         return redirect(url_for("predict"))
@@ -192,9 +172,8 @@ def predict():
     r["recent_n"] = recent_n
     return render_template("predict.html", r=r, default_issue=None)
 
-
 # ============================================================
-#            区域盲测
+#            区域盲测 / 连不中 / 冷号 / 状态 / 面板 (保持原样)
 # ============================================================
 
 @app.route("/backtest", methods=["GET", "POST"])
@@ -205,16 +184,13 @@ def backtest():
         max_issue = int(df["期数"].max()) if not df.empty else 0
         min_issue = int(df["期数"].min()) if not df.empty else 0
         return render_template("backtest.html", r=None, min_issue=min_issue, max_issue=max_issue, all_methods=prediction.ALL_METHODS.keys())
-
+    
     start_issue = int(request.form.get("start_issue", 2023001))
     end_issue = int(request.form.get("end_issue", 2026289))
     use_timing = request.form.get("use_timing") == "1"
     
-    # 接收号码组
     top_ks_str = request.form.getlist("top_ks")
     top_ks = [int(k) for k in top_ks_str] if top_ks_str else [5, 10, 12, 20]
-    
-    # 接收模型选择
     selected_methods = request.form.getlist("methods")
     if not selected_methods:
         selected_methods = [prediction.DEFAULT_METHOD]
@@ -225,20 +201,13 @@ def backtest():
     
     return render_template("backtest.html", r=r, min_issue=start_issue, max_issue=end_issue, all_methods=prediction.ALL_METHODS.keys())
 
-
-# ============================================================
-#            连不中统计
-# ============================================================
-
 @app.route("/streak", methods=["GET", "POST"])
 @login_required
 def streak():
     methods = request.values.getlist("methods")
     if not methods: methods = [prediction.DEFAULT_METHOD]
-    
     top_ks_str = request.values.getlist("top_ks")
     top_ks = [int(k) for k in top_ks_str] if top_ks_str else [5, 10, 12, 20]
-    
     windows = request.values.getlist("windows")
     if not windows: windows = ["all"]
     
@@ -250,10 +219,6 @@ def streak():
     r["selected_windows"] = windows
     r["all_methods"] = prediction.ALL_METHODS.keys()
     return render_template("streak.html", r=r)
-
-# ============================================================
-#            冷号监控
-# ============================================================
 
 @app.route("/cold")
 @login_required
@@ -281,10 +246,6 @@ def api_cold_history365():
     res = prediction.run_cold_history_365(target)
     return jsonify(res)
 
-# ============================================================
-#            状态查看
-# ============================================================
-
 @app.route("/state")
 @login_required
 def state():
@@ -293,31 +254,24 @@ def state():
         recent_n = int(recent_raw)
     except Exception:
         recent_n = 10
-        
     t0 = time.time()
     r = prediction.run_state_view(recent_n=recent_n)
     r["wall"] = round(time.time() - t0, 1)
     return render_template("state.html", r=r)
-
-# ============================================================
-#            模型对比面板
-# ============================================================
 
 @app.route("/panel", methods=["GET", "POST"])
 @login_required
 def panel():
     top_ks_str = request.values.getlist("top_ks")
     top_ks = [int(k) for k in top_ks_str] if top_ks_str else [5, 10, 12, 20]
-    
     t0 = time.time()
     r = prediction.run_model_panel(end_issue=None, top_ks=top_ks)
     r["wall"] = round(time.time() - t0, 1)
     r["selected_topks"] = top_ks
     return render_template("panel.html", r=r)
 
-
 # ============================================================
-#            保本递进注（占位）
+#            递进注主路由 (核心逻辑修复)
 # ============================================================
 
 @app.route("/insurance", methods=["GET", "POST"])
@@ -332,7 +286,7 @@ def insurance_view():
     max_issue = int(df["期数"].max()) if not df.empty else 0
     result = None
     
-    # 处理 POST 请求（计算、保存、删除）
+    # 处理 POST 请求
     if request.method == "POST" and "calc" in request.form:
         model_name = request.form["model_name"]
         target_issue = int(request.form["target_issue"])
@@ -341,21 +295,53 @@ def insurance_view():
         override_target_str = request.form.get("override_target", "").strip()
         
         manual_miss = int(miss_str) if miss_str else None
-        manual_loss = float(loss_str) if loss_str else None
         override_target = float(override_target_str) if override_target_str else None
         
         show_sim = request.form.get("show_sim") == "1"
         show_365 = request.form.get("show_365") == "1"
         
-        result = insurance.calc_issue(selected_plan, model_name, target_issue, manual_miss, manual_loss, override_target)
+        # ★ 核心修复：计算前先极速对账，算出真实的亏损/盈利
+        df_dict = df.set_index("期数")["特码"].to_dict()
+        all_records = insurance.get_records(selected_plan, 0)
+        real_profit = 0
+        for r in all_records:
+            cost_val = float(r["cost"]) if str(r["cost"]).strip() else 0.0
+            actual = df_dict.get(r["issue"])
+            if actual is not None:
+                if r.get("bet_numbers") and r["bet_numbers"] != "None":
+                    try:
+                        bet_nums = [int(x) for x in r["bet_numbers"].split(",") if x.strip()]
+                        bet_amts = [float(x) for x in r["bet_amts"].split(",") if x.strip()]
+                        if actual in bet_nums:
+                            idx = bet_nums.index(actual)
+                            amt = bet_amts[idx]
+                            if amt > 0:
+                                real_profit += (46 * amt - cost_val)
+                            else:
+                                real_profit += -cost_val
+                        else:
+                            real_profit += -cost_val
+                    except Exception:
+                        real_profit += -cost_val
+                else:
+                    real_profit += -cost_val
+            else:
+                real_profit += -cost_val
+
+        real_loss = -real_profit if real_profit < 0 else 0
+        final_loss = float(loss_str) if loss_str else real_loss
         
+        result = insurance.calc_issue(selected_plan, model_name, target_issue, manual_miss, final_loss, override_target)
+        
+        if result and not result.get("error"):
+            # 强行用真实的亏损覆盖掉数据库查出的错误值，防止页面显示错误
+            result["auto_loss"] = real_loss         
         if result and not result.get("error"):
             if show_sim:
                 plan_amts = next((p["config"]["amts"] for p in plans if p["name"] == selected_plan), [])
                 result["sim_table"] = insurance.calc_miss_simulation(plan_amts, result["target_profit"], 20)
             else:
                 result["sim_table"] = []
-                
             if show_365:
                 result["stats_365"] = insurance.get_365_miss(model_name, result["codes_count"], df, events)
             else:
@@ -376,12 +362,14 @@ def insurance_view():
         profit = -actual_cost
         is_hit = False
         
+        # 判中逻辑：必须存在该号码，且下注金额 > 0
         if actual_num and actual_num in bet_numbers:
             hit_idx = bet_numbers.index(actual_num)
             hit_amt = float(custom_amts[hit_idx]) if custom_amts[hit_idx] else 0
-            revenue = 46 * hit_amt
-            profit = revenue - actual_cost
-            is_hit = True
+            if hit_amt > 0:  # ★ 核心修复：没下注算没中
+                revenue = 46 * hit_amt
+                profit = revenue - actual_cost
+                is_hit = True
 
         amts_str = ",".join(custom_amts)
         insurance.save_auto_record(target_issue, plan_name, actual_cost, revenue, profit, is_hit, bet_numbers_str, amts_str)
@@ -416,7 +404,7 @@ def insurance_view():
             flash(f"删除战报失败：{type(e).__name__}", "danger")
         return redirect(url_for("insurance_view", plan_name=selected_plan))
 
-    # ================= 当前方案极速对账 =================
+    # ================= 极速对账与盘面计算 =================
     df_dict = df.set_index("期数")["特码"].to_dict()
     all_records = insurance.get_records(selected_plan, 0)
     
@@ -440,10 +428,15 @@ def insurance_view():
                     if actual_num in bet_nums:
                         idx = bet_nums.index(actual_num)
                         amt = bet_amts[idx]
-                        r["hit"] = True
-                        r["revenue"] = int(46 * amt)
-                        r["profit"] = r["revenue"] - cost_val
-                        real_hit_count += 1
+                        if amt > 0:  # ★ 核心修复
+                            r["hit"] = True
+                            r["revenue"] = int(46 * amt)
+                            r["profit"] = r["revenue"] - cost_val
+                            real_hit_count += 1
+                        else:
+                            r["hit"] = False
+                            r["revenue"] = 0
+                            r["profit"] = -cost_val
                     else:
                         r["hit"] = False
                         r["revenue"] = 0
@@ -477,13 +470,11 @@ def insurance_view():
     limit = int(limit_str) if limit_str != "all" else 0
     records = all_records[:limit] if limit > 0 else all_records
 
-    # 注意：这里必须包含 return 语句，并且要把所有变量都传进去
     return render_template("insurance.html", plans=plans, selected_plan=selected_plan,
                            result=result, pool=pool, records=records, max_issue=max_issue,
                            limit=limit, models=prediction.ALL_METHODS.keys())
 
 
-# ================= 新增：全局统计异步接口 =================
 @app.route("/api/global_stats")
 @login_required
 def api_global_stats():
@@ -516,8 +507,11 @@ def api_global_stats():
                         if actual in bet_nums:
                             idx = bet_nums.index(actual)
                             amt = bet_amts[idx]
-                            p_hits += 1
-                            prof = (46 * amt) - cost_val
+                            if amt > 0:  # ★ 核心修复
+                                p_hits += 1
+                                prof = (46 * amt) - cost_val
+                            else:
+                                prof = -cost_val
                         else:
                             prof = -cost_val
                     except Exception:
@@ -550,14 +544,7 @@ def api_global_stats():
     
     return jsonify({"stats": global_stats, "summary": global_summary})
 
-# ============================================================
-#            本地测试入口
-# ============================================================
 
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "1") == "1"
-    print("=" * 60)
-    print(f"Flask 启动中... debug={debug}")
-    print("浏览器打开：http://127.0.0.1:5000")
-    print("=" * 60)
     app.run(host="0.0.0.0", port=5000, debug=debug, threaded=True)
