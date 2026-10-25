@@ -5,19 +5,19 @@
     <!-- 左侧：下注计算器 -->
     <div class="col-md-5">
         <div class="card shadow-sm border-primary">
-            <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between">
-                <span>下注台 (当前太岁: {{ latest_yz }})</span>
+            <div class="card-header bg-primary text-white py-2">
+                <span class="fs-6 fw-bold">下注台 (当前太岁: {{ latest_yz }})</span>
             </div>
             <div class="card-body">
                 <div class="alert alert-info py-2 d-flex justify-content-between align-items-center">
                     <span>当前模型历史连黑: <strong class="fs-5 text-danger">{{ streak }} 期</strong></span>
                 </div>
 
-                <!-- 近20期前3名详细数据 -->
+                <!-- 近20期前3名 -->
                 <div class="mb-3 p-2 bg-light rounded border border-warning">
-                    <div class="fw-bold text-secondary mb-2 border-bottom pb-1"><i class="bi bi-fire"></i> 近20期热度排行</div>
+                    <div class="fw-bold text-secondary mb-1"><i class="bi bi-fire"></i> 近20期热度排行</div>
                     {% for t in top3 %}
-                        <div class="d-flex justify-content-between align-items-center small mb-1">
+                        <div class="d-flex justify-content-between small mb-1">
                             <span>
                                 <span class="badge bg-{% if loop.index==1 %}danger{% elif loop.index==2 %}warning text-dark{% else %}info text-dark{% endif %} me-1">
                                     排{{ loop.index }}
@@ -26,7 +26,7 @@
                             </span>
                             <span class="text-muted">
                                 当前连黑: <strong class="{% if t.cur_miss > 0 %}text-danger{% endif %}">{{ t.cur_miss }}</strong>
-                                <span class="mx-1">|</span> 最大连黑: {{ t.max_miss }}
+                                | 最大连黑: {{ t.max_miss }}
                             </span>
                         </div>
                     {% endfor %}
@@ -83,7 +83,7 @@
     <!-- 右侧：历史战报 -->
     <div class="col-md-7">
         <div class="card shadow-sm">
-            <div class="card-header bg-dark text-white d-flex justify-content-between">
+            <div class="card-header bg-dark text-white py-2 d-flex justify-content-between">
                 <span class="fw-bold">历史战报</span>
                 <span>总盈亏: <strong class="{% if total_profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ total_profit|round(1) }}</strong> 元</span>
             </div>

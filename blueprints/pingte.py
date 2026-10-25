@@ -10,14 +10,11 @@ from database import query, execute, query_one
 from core.pingte.logic import (
     get_all_pingte_draws, update_pingte_data, 
     get_year_zodiac, num_to_zodiac, ZODIAC_ORDER, LUNAR_NEW_YEAR,
-    get_processed_history # 下注台需要用到
+    get_processed_history 
 )
 
 pingte_bp = Blueprint('pingte', __name__, url_prefix='/pingte')
 
-# ==========================================
-# 1. 数据管理主页
-# ==========================================
 @pingte_bp.route('/')
 def index():
     draws = get_all_pingte_draws()
@@ -100,9 +97,6 @@ def index():
         
     return render_template('pingte/dashboard.html', draws=processed_draws, total=total, start_issue=start_issue, end_issue=end_issue, range_type=range_type, stat_mode=stat_mode, zodiacs=ZODIAC_ORDER, last_update=last_update)
 
-# ==========================================
-# 2. 排行榜主页
-# ==========================================
 @pingte_bp.route('/rank')
 def rank():
     draws = get_all_pingte_draws()
@@ -173,7 +167,6 @@ def rank():
     for d in recent_draws:
         issue, date_str, sp = d[0], d[1], d[8]
         date_str = date_str.split(" ")[0].replace("-", "/")
-        
         yz = get_year_zodiac(date_str)
         nums = list(d[2:8]) + [sp]
         num_zodiacs = [num_to_zodiac(n, yz) for n in nums]
