@@ -1,0 +1,996 @@
+{% extends 'pingte/base.html' %}
+
+{% block content %}
+<div id="draws-data" data-json='{{ draws | tojson }}' style="display:none;"></div>
+<div id="all-draws-data" data-json='{{ all_draws | tojson }}' style="display:none;"></div>
+
+<!-- 头部 -->
+<div class="d-flex justify-content-between align-items-end mb-2 flex-wrap gap-2">
+    <div>
+        <h4 class="mb-1" style="color: #0f172a;">📊 平特一肖 · 量化预测与回测</h4>
+        <div class="text-muted" style="font-size: 0.85rem;">历史共 {{ total }} 期，当前榜单范围 {{ draws|length }} 期</div>
+    </div>
+</div>
+
+<!-- 时间范围过滤 -->
+<div class="card shadow-sm border-0 rounded-3 mb-2">
+    <div class="card-body py-2">
+        <form method="GET" action="/pingte/rank" class="d-flex flex-wrap align-items-center gap-2" id="query-form">
+            <span class="text-muted small me-1">榜单范围:</span>
+            <input type="text" name="start_issue" class="form-control form-control-sm" style="width: 85px;" value="{{ start_issue }}" placeholder="开始期">
+            <span class="text-muted">-</span>
+            <input type="text" name="end_issue" class="form-control form-control-sm" style="width: 85px;" value="{{ end_issue }}" placeholder="结束期">
+            
+            <input type="hidden" name="is_custom" id="is-custom" value="0">
+            <button type="button" class="btn btn-sm btn-primary" onclick="submitCustom()">查询</button>
+
+            <select name="range_type" id="range-select" class="form-select form-select-sm" style="width: 110px;" onchange="submitRange()">
+                <option value="20" {% if range_type == '20' %}selected{% endif %}>近20期</option>
+                <option value="60" {% if range_type == '60' %}selected{% endif %}>近60期</option>
+                <option value="90" {% if range_type == '90' %}selected{% endif %}>近90期</option>
+                <option value="180" {% if range_type == '180' %}selected{% endif %}>近180期</option>
+                <option value="365" {% if range_type == '365' %}selected{% endif %}>近365期</option>
+                <option value="all" {% if range_type == 'all' %}selected{% endif %}>全历史</option>
+            </select>
+        </form>
+    </div>
+</div>
+
+<div class="row g-2">
+    <!-- 左侧：玩法面板 -->
+    <div class="col-md-4 col-lg-3">
+        <div class="card shadow-sm border-0 rounded-3 mb-2">
+            <div class="card-header bg-dark text-white py-1" style="font-size: 0.85rem;">选择测试玩法</div>
+            <div class="card-body p-2" style="max-height: 60vh; overflow-y:auto;">
+                <div class="mb-2">
+                    <div class="text-muted mb-1" style="font-size:0.75rem;">特码区</div>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('特码3码', 'special', 3)">特码3码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('特码5码', 'special', 5)">特码5码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('特码10码', 'special', 10)">特码10码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('特码20码', 'special', 20)">特码20码</button>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <div class="text-muted mb-1" style="font-size:0.75rem;">平特区</div>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特一肖', 'zodiac', 12)">平特一肖</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特2肖', 'zodiac2', 4)">平特2肖</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特3肖', 'zodiac3', 10)">平特3肖</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特4肖', 'zodiac4', 30)">平特4肖</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特5肖', 'zodiac5', 90)">平特5肖</button>
+                        
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特一尾', 'tail', 10)">平特一尾</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特2尾', 'tail2', 4)">平特2尾</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特3尾', 'tail3', 10)">平特3尾</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特4尾', 'tail4', 30)">平特4尾</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特5尾', 'tail5', 90)">平特5尾</button>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <div class="text-muted mb-1" style="font-size:0.75rem;">平码区</div>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平码3码', 'normal', 3)">平码3码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平码5码', 'normal', 5)">平码5码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平码10码', 'normal', 10)">平码10码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平码20码', 'normal', 20)">平码20码</button>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <div class="text-muted mb-1" style="font-size:0.75rem;">组合区</div>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('二中二', 'erzhonger', 60)">二中二</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('三中二', 'sanzhonger', 20)">三中二</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('三中三', 'sanzhongsan', 20)">三中三</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('特碰', 'tepeng', 120)">特碰</button>
+                    </div>
+                </div>
+                <div>
+                    <div class="text-muted mb-1" style="font-size:0.75rem;">不中区</div>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('不中3码', 'bu3', 10)">不中3码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('不中5码', 'bu5', 10)">不中5码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('不中10码', 'bu10', 10)">不中10码</button>
+                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('不中20码', 'bu20', 10)">不中20码</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 玩法情报 -->
+        <div class="card shadow-sm border-0 rounded-3 mb-2 border-start border-4 border-success">
+            <div class="card-body py-2 px-3" id="rule-panel">
+                <div class="text-muted small">点击上方玩法查看详细情报</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：工作区 -->
+    <div class="col-md-8 col-lg-9">
+        <ul class="nav nav-tabs mb-2">
+            <li class="nav-item"><a class="nav-link active fw-bold" data-bs-toggle="tab" href="#tab-rank">📈 当前排行榜</a></li>
+            <li class="nav-item"><a class="nav-link fw-bold text-danger" data-bs-toggle="tab" href="#tab-blind">🚀 智能盲测</a></li>
+            <li class="nav-item"><a class="nav-link fw-bold text-primary" data-bs-toggle="tab" href="#tab-predict">🎯 单期预测</a></li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- 排行榜 -->
+            <div class="tab-pane fade show active" id="tab-rank">
+                <div class="card shadow-sm border-0 rounded-3 mb-2">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center py-2 border-bottom">
+                        <span class="fs-6" id="rank-title">请从左侧选择玩法</span>
+                        <span class="badge bg-secondary">当前范围热度排行</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-hover text-center align-middle mb-0">
+                                <thead class="table-light sticky-top" id="rank-thead" style="display: none;">
+                                    <tr><th width="8%">排名</th><th width="30%">元素/组合</th><th width="12%">出次</th><th width="15%">命中率</th><th width="25%">连中详情</th><th width="10%">操作</th></tr>
+                                </thead>
+                                <tbody id="rank-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 动态盲测 -->
+            <div class="tab-pane fade" id="tab-blind">
+                <div class="card shadow-sm border-0 rounded-3 border-start border-4 border-danger">
+                    <div class="card-body p-3 bg-light">
+                        <div class="alert alert-danger py-2 mb-3" style="font-size: 0.85rem;">
+                            <strong>严格盲测：</strong> L模型已修正为从历史全量计算当期真实排名。支持递进、连黑停止及恢复机制。
+                        </div>
+                        
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label mb-0 fw-bold small">测试开始期</label>
+                                <input type="text" id="scan-start" class="form-control form-control-sm" placeholder="如 2026001">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label mb-0 fw-bold small">测试结束期</label>
+                                <input type="text" id="scan-end" class="form-control form-control-sm" placeholder="如 2026297">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label mb-0 fw-bold small">下注组数</label>
+                                <input type="number" id="scan-groups" class="form-control form-control-sm" value="5" min="1">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label mb-0 fw-bold small">基础本金</label>
+                                <input type="number" id="scan-amount" class="form-control form-control-sm" value="10">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label mb-0 fw-bold small">勾选盲测模型</label>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-outline-secondary py-0" onclick="toggleAll(true)">全选</button>
+                                    <button class="btn btn-sm btn-outline-secondary py-0" onclick="toggleAll(false)">全不选</button>
+                                </div>
+                            </div>
+                            <div class="d-flex flex-wrap gap-3 border rounded p-2 bg-white">
+                                <div class="w-100 text-muted small mb-1 fw-bold text-danger">L 排名频次 (仅算排名分布)</div>
+                                <div class="d-flex flex-wrap gap-2 w-100 mb-2">
+                                    <span class="text-muted small">L纯频:</span>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_5" checked><label class="form-check-label small">L5</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_10" checked><label class="form-check-label small">L10</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_15" checked><label class="form-check-label small">L15</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_20" checked><label class="form-check-label small">L20</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_25" checked><label class="form-check-label small">L25</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_30" checked><label class="form-check-label small">L30</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_60" checked><label class="form-check-label small">L60</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_120" checked><label class="form-check-label small">L120</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_240" checked><label class="form-check-label small">L240</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_360" checked><label class="form-check-label small">L360</label></div>
+                                </div>
+
+                                <div class="w-100 text-muted small mb-1 fw-bold text-danger">L 加权 (排名频次 × 尾数权重)</div>
+                                <div class="d-flex flex-wrap gap-2 w-100 mb-2">
+                                    <span class="text-muted small">L加权:</span>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_5"><label class="form-check-label small">L5</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_10"><label class="form-check-label small">L10</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_15"><label class="form-check-label small">L15</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_20"><label class="form-check-label small">L20</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_25"><label class="form-check-label small">L25</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_30" checked><label class="form-check-label small">L30</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_60"><label class="form-check-label small">L60</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_120"><label class="form-check-label small">L120</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_240"><label class="form-check-label small">L240</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="L_W_360"><label class="form-check-label small">L360</label></div>
+                                </div>
+
+                                <div class="w-100 text-muted small mb-1 mt-2 fw-bold text-primary">传统冷热榜</div>
+                                <div class="d-flex flex-wrap gap-2 w-100">
+                                    <span class="text-muted small">热榜:</span>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="hot_5" checked><label class="form-check-label small">热5</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="hot_10" checked><label class="form-check-label small">热10</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="hot_20" checked><label class="form-check-label small">热20</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="hot_30" checked><label class="form-check-label small">热30</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="hot_60" checked><label class="form-check-label small">热60</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="hot_90" checked><label class="form-check-label small">热90</label></div>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2 w-100 mt-2">
+                                    <span class="text-muted small">冷榜:</span>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="cold_30" checked><label class="form-check-label small">冷30</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="cold_60" checked><label class="form-check-label small">冷60</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="cold_120" checked><label class="form-check-label small">冷120</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="cold_180" checked><label class="form-check-label small">冷180</label></div>
+                                    <div class="form-check"><input class="form-check-input model-cb" type="checkbox" value="cold_240" checked><label class="form-check-label small">冷240</label></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 状态机风控 -->
+                        <div class="row g-2 mb-3 p-2 border rounded bg-white">
+                            <div class="col-md-3">
+                                <label class="form-label mb-0 fw-bold small">寿命 (期)</label>
+                                <input type="number" id="model-lifetime" class="form-control form-control-sm" placeholder="如 30">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label mb-0 fw-bold small text-danger">连黑变更 (期)</label>
+                                <input type="number" id="stop-threshold" class="form-control form-control-sm" placeholder="如 3">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label mb-0 fw-bold small">递进注 (倍)</label>
+                                <input type="number" step="0.1" id="prog-factor" class="form-control form-control-sm" placeholder="如 1.5">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label mb-0 fw-bold small">连黑停止</label>
+                                <input type="number" id="stop-at" class="form-control form-control-sm" placeholder="如 4">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label mb-0 fw-bold small">恢复下注</label>
+                                <input type="number" id="resume-at" class="form-control form-control-sm" placeholder="如 5">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <button class="btn btn-danger w-100 fw-bold" onclick="runDynamicBlindTest()">启动盲测</button>
+                        </div>
+
+                        <!-- 独立对比表 -->
+                        <div class="d-flex justify-content-between align-items-end mb-2 mt-4">
+                            <h6 class="mb-0 text-dark fw-bold">📊 独立周期表现对比表</h6>
+                            <span class="text-muted small">按利润从高到低排序</span>
+                        </div>
+                        <div class="table-responsive bg-white rounded border mb-3" style="max-height: 300px;">
+                            <table class="table table-sm table-hover text-center align-middle mb-0">
+                                <thead class="table-dark sticky-top">
+                                    <tr>
+                                        <th>模型</th><th>周期</th><th>测试期数</th><th>命中次数</th><th>命中率</th><th>最大连黑</th><th>总投入</th><th>净盈亏</th><th>详情</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="scan-tbody"></tbody>
+                            </table>
+                        </div>
+
+                        <!-- 动态寿命日志 -->
+                        <div id="lifetime-log-area" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-end mb-2">
+                                <h6 class="mb-0 text-primary fw-bold">🔄 动态切换执行日志</h6>
+                                <span class="text-muted small" id="lifetime-summary"></span>
+                            </div>
+                            <div id="blind-log" class="bg-white border rounded p-2" style="font-size:0.85rem; max-height:200px; overflow-y:auto;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 单期预测 -->
+            <div class="tab-pane fade" id="tab-predict">
+                <div class="card shadow-sm border-0 rounded-3 border-start border-4 border-primary">
+                    <div class="card-body p-4">
+                        <h5 class="fw-bold mb-3">🎯 单期预测生成器</h5>
+                        <div class="row g-3 align-items-end mb-4">
+                            <div class="col-md-3">
+                                <label class="fw-bold small mb-1">预测期数</label>
+                                <input type="text" id="pred-issue" class="form-control" placeholder="如 2026260">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="fw-bold small mb-1">使用模型</label>
+                                <select id="pred-cycle" class="form-select">
+                                    <optgroup label="L 纯频排名">
+                                        <option value="L_5">L5</option>
+                                        <option value="L_10">L10</option>
+                                        <option value="L_15">L15</option>
+                                        <option value="L_20">L20</option>
+                                        <option value="L_25">L25</option>
+                                        <option value="L_30" selected>L30</option>
+                                        <option value="L_60">L60</option>
+                                        <option value="L_120">L120</option>
+                                        <option value="L_240">L240</option>
+                                        <option value="L_360">L360</option>
+                                    </optgroup>
+                                    <optgroup label="L 加权排名">
+                                        <option value="L_W_5">L5_加</option>
+                                        <option value="L_W_10">L10_加</option>
+                                        <option value="L_W_15">L15_加</option>
+                                        <option value="L_W_20">L20_加</option>
+                                        <option value="L_W_25">L25_加</option>
+                                        <option value="L_W_30">L30_加</option>
+                                        <option value="L_W_60">L60_加</option>
+                                        <option value="L_W_120">L120_加</option>
+                                        <option value="L_W_240">L240_加</option>
+                                        <option value="L_W_360">L360_加</option>
+                                    </optgroup>
+                                    <optgroup label="传统周期">
+                                        <option value="hot_5">热5</option>
+                                        <option value="hot_10">热10</option>
+                                        <option value="hot_20">热20</option>
+                                        <option value="hot_30">热30</option>
+                                        <option value="hot_60">热60</option>
+                                        <option value="hot_90">热90</option>
+                                        <option value="cold_30">冷30</option>
+                                        <option value="cold_60">冷60</option>
+                                        <option value="cold_120">冷120</option>
+                                        <option value="cold_180">冷180</option>
+                                        <option value="cold_240">冷240</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="fw-bold small mb-1">推荐数量</label>
+                                <select id="pred-count" class="form-select">
+                                    <option value="default">按默认玩法出</option>
+                                    <option value="10">前10个</option>
+                                    <option value="20">前20个</option>
+                                    <option value="50">前50个</option>
+                                    <option value="100">前100个</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="fw-bold small mb-1">冷热倾向</label>
+                                <select id="pred-type" class="form-select">
+                                    <option value="hot">热号排行</option>
+                                    <option value="cold">冷号排行</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-primary w-100 fw-bold" onclick="runPredict()">立即预测</button>
+                            </div>
+                        </div>
+                        
+                        <div id="pred-result" class="bg-light p-3 rounded border text-center text-muted">
+                            请先选择左侧玩法，配置好参数后点击预测。
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white py-2">
+                <h6 class="modal-title" id="modal-title">详情</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="table-responsive" style="max-height: 60vh;">
+                    <table class="table table-sm table-striped text-center align-middle mb-0">
+                        <thead class="table-light sticky-top"><tr><th>期数/参数</th><th>开奖/结果</th><th>命中细节</th></tr></thead>
+                        <tbody id="modal-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const rawDraws = JSON.parse(document.getElementById('draws-data').dataset.json).sort((a,b) => a.issue.localeCompare(b.issue));
+const allDraws = JSON.parse(document.getElementById('all-draws-data').dataset.json).sort((a,b) => a.issue.localeCompare(b.issue));
+
+let currentAllResults = [];
+let currentActiveType = '';
+let currentActiveName = '';
+let currentActiveN = 0;
+
+const TAIL_W_VALUES = [0.85, 1.00, 1.15, 0.95];
+const TAIL_W_BOUNDS = [1, 5, 15];
+
+const PLAY_RULES = {
+    'special': { name: '特码', odds: '46.0', suggest: '1-3组' },
+    'normal': { name: '平码', odds: '7.0', suggest: '1-5组' },
+    'zodiac': { name: '平特一肖', odds: '普通2.0 / 本命1.8', suggest: '1-2组' },
+    'tail': { name: '平特一尾', odds: '普通1.8 / 0尾2.0', suggest: '1-3组' },
+    'zodiac2': { name: '平特2肖', odds: '普通4.0 / 本命3.5', suggest: '<= 2组' },
+    'zodiac3': { name: '平特3肖', odds: '普通10.0 / 本命9.0', suggest: '<= 2组' },
+    'zodiac4': { name: '平特4肖', odds: '普通30.0 / 本命28.0', suggest: '1组' },
+    'zodiac5': { name: '平特5肖', odds: '普通90.0 / 本命80.0', suggest: '1组' },
+    'tail2': { name: '平特2尾', odds: '3.0', suggest: '1-3组' },
+    'tail3': { name: '平特3尾', odds: '6.0', suggest: '1-2组' },
+    'tail4': { name: '平特4尾', odds: '16.0', suggest: '1组' },
+    'tail5': { name: '平特5尾', odds: '33.0', suggest: '1组' },
+    'erzhonger': { name: '二中二', odds: '60.0', suggest: '10-20组' },
+    'sanzhonger': { name: '三中二', odds: '20.0 / 60.0', suggest: '10-20组' },
+    'sanzhongsan': { name: '三中三', odds: '600.0', suggest: '20组+' },
+    'tepeng': { name: '特碰', odds: '120.0', suggest: '10组+' },
+    'bu3': { name: '不中3码', odds: '1.5', suggest: '1组' },
+    'bu5': { name: '不中5码', odds: '2.0', suggest: '1组' },
+    'bu10': { name: '不中10码', odds: '5.0', suggest: '1组' },
+    'bu20': { name: '不中20码', odds: '20.0', suggest: '1组' }
+};
+
+function getCombinations(arr, size) {
+    const result = [];
+    function backtrack(start, current) {
+        if (current.length === size) { result.push([...current]); return; }
+        for (let i = start; i < arr.length; i++) {
+            current.push(arr[i]); backtrack(i + 1, current); current.pop();
+        }
+    }
+    backtrack(0, []); return result;
+}
+
+function submitCustom() { document.getElementById('is-custom').value = '1'; document.getElementById('query-form').submit(); }
+function submitRange() { document.getElementById('is-custom').value = '0'; document.getElementById('query-form').submit(); }
+function toggleAll(checked) { document.querySelectorAll('.model-cb').forEach(cb => cb.checked = checked); }
+
+function getTailWeight(streak) {
+    if (streak <= TAIL_W_BOUNDS[0]) return TAIL_W_VALUES[0];
+    if (streak <= TAIL_W_BOUNDS[1]) return TAIL_W_VALUES[1];
+    if (streak <= TAIL_W_BOUNDS[2]) return TAIL_W_VALUES[2];
+    return TAIL_W_VALUES[3];
+}
+
+function getZodiac(num, yz) {
+    const order = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"];
+    let idx = order.indexOf(yz);
+    return order[(idx - (num - 1) % 12 + 12) % 12];
+}
+
+// 核心计算：L系列频次与加权
+function calcLModel(historyData, windowSize, limit, isWeighted = false) {
+    let lastPos = {};
+    for(let i=0; i<historyData.length; i++) {
+        let nums = historyData[i].nums;
+        for(let j=0; j<7; j++) lastPos[nums[j]] = i;
+    }
+    let omissions = {};
+    for(let n=1; n<=49; n++) {
+        if(lastPos[n] !== undefined) omissions[n] = historyData.length - 1 - lastPos[n];
+        else omissions[n] = historyData.length;
+    }
+    
+    let sortedNums = Object.keys(omissions).map(Number).sort((a,b) => omissions[b] - omissions[a]);
+    let currentRankMap = {};
+    sortedNums.forEach((n, idx) => currentRankMap[n] = idx + 1);
+    
+    let rankFreq = {};
+    for(let i=1; i<=49; i++) rankFreq[i] = 0;
+    
+    let startIdx = Math.max(0, historyData.length - windowSize);
+    for(let i = startIdx; i < historyData.length; i++) {
+        let pastData = historyData.slice(0, i);
+        if(pastData.length === 0) continue;
+        
+        let plp = {};
+        for(let k=0; k<pastData.length; k++) {
+            let nums = pastData[k].nums;
+            for(let j=0; j<7; j++) plp[nums[j]] = k;
+        }
+        let pom = {};
+        for(let n=1; n<=49; n++) {
+            if(plp[n] !== undefined) pom[n] = pastData.length - 1 - plp[n];
+            else pom[n] = pastData.length;
+        }
+        let pSorted = Object.keys(pom).map(Number).sort((a,b) => pom[b] - pom[a]);
+        let pRankMap = {};
+        pSorted.forEach((n, idx) => pRankMap[n] = idx + 1);
+        
+        let d = historyData[i];
+        let isNormal = currentActiveType.includes('normal') || currentActiveType.includes('erzhonger') || currentActiveType.includes('sanzhong');
+        let numCount = isNormal ? 6 : 7;
+        for(let j=0; j<numCount; j++) {
+            let num = d.nums[j];
+            let rank = pRankMap[num] || 49;
+            rankFreq[rank] = (rankFreq[rank] || 0) + 1;
+        }
+    }
+
+    let tailLastPos = {};
+    for(let i=0; i<historyData.length; i++) {
+        let nums = historyData[i].nums;
+        for(let j=0; j<7; j++) tailLastPos[nums[j] % 10] = i;
+    }
+    let tailOmissions = {};
+    for(let t=0; t<10; t++) {
+        if(tailLastPos[t] !== undefined) tailOmissions[t] = historyData.length - 1 - tailLastPos[t];
+        else tailOmissions[t] = historyData.length;
+    }
+
+    let numScores = {};
+    for(let n=1; n<=49; n++) {
+        let base = rankFreq[currentRankMap[n]] || 0;
+        if (isWeighted) {
+            let w = getTailWeight(tailOmissions[n % 10]);
+            numScores[n] = base * w;
+        } else {
+            numScores[n] = base;
+        }
+    }
+
+    let agg = {};
+    let lastD = historyData[historyData.length - 1];
+    let yz = lastD ? lastD.year_zodiac : "马";
+    
+    if (currentActiveType.includes('tail')) {
+        for(let n=1; n<=49; n++) agg[n % 10] = (agg[n % 10] || 0) + numScores[n];
+    } else if (currentActiveType.includes('zodiac')) {
+        for(let n=1; n<=49; n++) agg[getZodiac(n, yz)] = (agg[getZodiac(n, yz)] || 0) + numScores[n];
+    } else {
+        for(let n=1; n<=49; n++) agg[n] = numScores[n];
+    }
+
+    let keys = Object.keys(agg).sort((a,b) => agg[b] - agg[a]);
+    
+    if (currentActiveType === 'zodiac2') return getCombinations(keys.slice(0, 6), 2).map(c=>c.join('-')).slice(0, limit);
+    if (currentActiveType === 'zodiac3') return getCombinations(keys.slice(0, 6), 3).map(c=>c.join('-')).slice(0, limit);
+    if (currentActiveType === 'zodiac4') return getCombinations(keys.slice(0, 6), 4).map(c=>c.join('-')).slice(0, limit);
+    if (currentActiveType === 'zodiac5') return getCombinations(keys.slice(0, 6), 5).map(c=>c.join('-')).slice(0, limit);
+    
+    if (currentActiveType === 'tail2') return getCombinations(keys.slice(0, 6), 2).map(c=>c.join('-')).slice(0, limit);
+    if (currentActiveType === 'tail3') return getCombinations(keys.slice(0, 6), 3).map(c=>c.join('-')).slice(0, limit);
+    if (currentActiveType === 'tail4') return getCombinations(keys.slice(0, 6), 4).map(c=>c.join('-')).slice(0, limit);
+    if (currentActiveType === 'tail5') return getCombinations(keys.slice(0, 6), 5).map(c=>c.join('-')).slice(0, limit);
+    
+    if (currentActiveType === 'erzhonger') return getCombinations(keys.slice(0, 10), 2).map(c=>c.join('-')).slice(0, limit);
+    if (currentActiveType === 'sanzhonger' || currentActiveType === 'sanzhongsan') return getCombinations(keys.slice(0, 10), 3).map(c=>c.join('-')).slice(0, limit);
+    
+    return keys.slice(0, limit);
+}
+
+function calcBaseRank(dataSet, type, limit, isHot = true) {
+    let counts = {};
+    let baseType = '';
+    if (type.startsWith('zodiac')) baseType = 'zodiac';
+    else if (type.startsWith('tail')) baseType = 'tail';
+    else if (['erzhonger', 'sanzhonger', 'sanzhongsan', 'tepeng'].includes(type)) baseType = 'normal';
+    else if (type === 'special') baseType = 'special';
+    else if (type === 'normal') baseType = 'normal';
+
+    dataSet.forEach(d => {
+        let nums = d.nums || d.slice(2, 9);
+        let zs = d.num_zodiacs;
+        let tails = nums.map(n => n % 10);
+        
+        if (baseType === 'special') counts[nums[6].toString()] = (counts[nums[6].toString()] || 0) + 1;
+        else if (baseType === 'zodiac') [...new Set(zs)].forEach(z=>counts[z] = (counts[z] || 0) + 1);
+        else if (baseType === 'tail') [...new Set(tails)].forEach(t=>counts[t] = (counts[t] || 0) + 1);
+        else if (baseType === 'normal') nums.slice(0,6).forEach(n=>counts[n] = (counts[n] || 0) + 1);
+    });
+
+    if (type.startsWith('bu')) {
+        let size = parseInt(type.replace('bu', ''));
+        let numCounts = {};
+        for(let i=1; i<=49; i++) numCounts[i] = 0;
+        dataSet.forEach(d => (d.nums || d.slice(2, 9)).forEach(num => numCounts[num]++));
+        let sortedNums = Object.keys(numCounts).sort((a,b) => numCounts[a] - numCounts[b]);
+        counts[sortedNums.slice(0, size).sort((a,b)=>a-b).join('-')] = 1; 
+    }
+
+    let elements = Object.keys(counts);
+    elements.sort((a,b) => isHot ? (counts[b] - counts[a]) : (counts[a] - counts[b]));
+    
+    if (type === 'zodiac2') return getCombinations(elements.slice(0, 6), 2).map(c=>c.join('-')).slice(0, limit);
+    if (type === 'zodiac3') return getCombinations(elements.slice(0, 6), 3).map(c=>c.join('-')).slice(0, limit);
+    if (type === 'zodiac4') return getCombinations(elements.slice(0, 6), 4).map(c=>c.join('-')).slice(0, limit);
+    if (type === 'zodiac5') return getCombinations(elements.slice(0, 6), 5).map(c=>c.join('-')).slice(0, limit);
+    
+    if (type === 'tail2') return getCombinations(elements.slice(0, 6), 2).map(c=>c.join('-')).slice(0, limit);
+    if (type === 'tail3') return getCombinations(elements.slice(0, 6), 3).map(c=>c.join('-')).slice(0, limit);
+    if (type === 'tail4') return getCombinations(elements.slice(0, 6), 4).map(c=>c.join('-')).slice(0, limit);
+    if (type === 'tail5') return getCombinations(elements.slice(0, 6), 5).map(c=>c.join('-')).slice(0, limit);
+    
+    if (type === 'erzhonger') return getCombinations(elements.slice(0, 10), 2).map(c=>c.join('-')).slice(0, limit);
+    if (type === 'sanzhonger' || type === 'sanzhongsan') return getCombinations(elements.slice(0, 10), 3).map(c=>c.join('-')).slice(0, limit);
+    if (type === 'tepeng') return getCombinations(elements.slice(0, 10), 2).map(c=>c.join('-')).slice(0, limit);
+    
+    return elements.slice(0, limit);
+}
+
+function calcRankData(historyData, modelType, limit) {
+    if (modelType.startsWith('L_W_')) {
+        let windowSize = parseInt(modelType.replace('L_W_', ''));
+        return calcLModel(historyData, windowSize, limit, true);
+    } else if (modelType.startsWith('L_')) {
+        let windowSize = parseInt(modelType.replace('L_', ''));
+        return calcLModel(historyData, windowSize, limit, false);
+    } else {
+        let windowSize = parseInt(modelType.split('_')[1]);
+        let dataSet = historyData.slice(Math.max(0, historyData.length - windowSize));
+        let isHot = modelType.split('_')[0] === 'hot';
+        return calcBaseRank(dataSet, currentActiveType, limit, isHot);
+    }
+}
+
+function checkHitAndGetOdds(type, el, d) {
+    let isHit = false, odds = 2.0, nums = d.nums || d.slice(2,9), zs = d.num_zodiacs, tails = nums.map(n => n % 10), yz = d.year_zodiac || "马", hitElements = [];
+    
+    if (type === 'special') { if (nums[6] == el) { isHit = true; hitElements.push(el+'号'); } odds = 46.0; }
+    else if (type === 'normal') { if (nums.slice(0,6).includes(Number(el))) { isHit = true; hitElements.push(el+'号'); } odds = 7.0; }
+    else if (type === 'zodiac') { if (zs.includes(el)) { isHit = true; hitElements.push(el+'肖'); } odds = el === yz ? 1.8 : 2.0; }
+    else if (type === 'tail') { if (tails.includes(Number(el))) { isHit = true; hitElements.push(el+'尾'); } odds = el === '0' ? 2.0 : 1.8; }
+    else if (type === 'zodiac2') { let uniqueZs = [...new Set(zs)]; if (el.split('-').every(z => uniqueZs.includes(z))) { isHit = true; hitElements = el.split('-'); } odds = el.split('-').includes(yz) ? 3.5 : 4.0; }
+    else if (type === 'zodiac3') { let uniqueZs = [...new Set(zs)]; if (el.split('-').every(z => uniqueZs.includes(z))) { isHit = true; hitElements = el.split('-'); } odds = el.split('-').includes(yz) ? 9.0 : 10.0; }
+    else if (type === 'zodiac4') { let uniqueZs = [...new Set(zs)]; if (el.split('-').every(z => uniqueZs.includes(z))) { isHit = true; hitElements = el.split('-'); } odds = el.split('-').includes(yz) ? 28.0 : 30.0; }
+    else if (type === 'zodiac5') { let uniqueZs = [...new Set(zs)]; if (el.split('-').every(z => uniqueZs.includes(z))) { isHit = true; hitElements = el.split('-'); } odds = el.split('-').includes(yz) ? 80.0 : 90.0; }
+    else if (type === 'tail2') { let uniqueTs = [...new Set(tails)]; if (el.split('-').every(t => uniqueTs.includes(Number(t)))) { isHit = true; hitElements = el.split('-'); } odds = 3.0; }
+    else if (type === 'tail3') { let uniqueTs = [...new Set(tails)]; if (el.split('-').every(t => uniqueTs.includes(Number(t)))) { isHit = true; hitElements = el.split('-'); } odds = 6.0; }
+    else if (type === 'tail4') { let uniqueTs = [...new Set(tails)]; if (el.split('-').every(t => uniqueTs.includes(Number(t)))) { isHit = true; hitElements = el.split('-'); } odds = 16.0; }
+    else if (type === 'tail5') { let uniqueTs = [...new Set(tails)]; if (el.split('-').every(t => uniqueTs.includes(Number(t)))) { isHit = true; hitElements = el.split('-'); } odds = 33.0; }
+    else if (type === 'erzhonger' || type === 'sanzhongsan') { let targetArr = nums.slice(0,6); if (el.split('-').every(num => targetArr.includes(Number(num)))) { isHit = true; hitElements = el.split('-'); } odds = type === 'erzhonger' ? 60.0 : 600.0; }
+    else if (type === 'sanzhonger') { let targetArr = nums.slice(0,6); let matchCount = el.split('-').filter(num => targetArr.includes(Number(num))).length; if (matchCount >= 2) { isHit = true; hitElements = el.split('-'); odds = matchCount === 3 ? 60.0 : 20.0; } }
+    else if (type === 'tepeng') { if (el.split('-').every(num => nums.includes(Number(num)))) { isHit = true; hitElements = el.split('-'); } odds = 120.0; }
+    else if (type.startsWith('bu')) { let coldNums = el.split('-').map(Number); if (coldNums.filter(n => nums.includes(n)).length === 0) { isHit = true; hitElements.push(el); } odds = {'bu3':1.5,'bu5':2.0,'bu10':5.0,'bu20':20.0}[type] || 2.0; }
+    return { isHit, odds, hitElements };
+}
+
+function fetchRank(title, type, n) {
+    document.querySelectorAll('.rank-btn').forEach(b => b.classList.remove('active', 'btn-dark', 'text-white'));
+    event.target.classList.add('active', 'btn-dark', 'text-white');
+    document.getElementById('rank-title').innerText = title;
+    document.getElementById('rank-thead').style.display = '';
+    document.getElementById('rank-tbody').innerHTML = '<tr><td colspan="6" class="py-4 text-muted">计算中...</td></tr>';
+    
+    currentActiveType = type;
+    currentActiveName = title;
+    currentActiveN = n;
+    
+    setTimeout(() => {
+        let topElements = calcBaseRank(rawDraws, type, n, true);
+        currentAllResults = topElements.map(el => {
+            let hits = 0, sMap = {}, curStreak = 0, details = [];
+            rawDraws.forEach(d => {
+                let res = checkHitAndGetOdds(type, el, d);
+                if (res.isHit) { hits++; curStreak++; sMap[curStreak] = (sMap[curStreak] || 0) + 1; details.push({ issue: d.issue, nums: d.nums.join(','), hit: res.hitElements.join(',') }); }
+                else { curStreak = 0; }
+            });
+            let sHtml = Object.keys(sMap).map(k => `<span style="color:#047857; margin-right:4px;">连中${k}:${sMap[k]}</span>`).join('') || '<span class="text-muted">无</span>';
+            let displayName = el;
+            // 严格格式化输出
+            if (type === 'zodiac') displayName = el + '肖'; if (type === 'tail') displayName = el + '尾';
+            if (type === 'zodiac2' || type === 'zodiac3' || type === 'zodiac4' || type === 'zodiac5') displayName = el.split('-').join('+') + '肖';
+            if (type === 'tail2' || type === 'tail3' || type === 'tail4' || type === 'tail5') displayName = el.split('-').join('+') + '尾';
+            if (type === 'special' || type === 'normal') displayName = el + '号';
+            if (type === 'bu3' || type === 'bu5' || type === 'bu10' || type === 'bu20') displayName = '不中: ' + el;
+            return { element: el, displayName, count: Math.floor(hits), ratio: (hits/rawDraws.length*100).toFixed(1), sHtml, details };
+        });
+        
+        let tbody = document.getElementById('rank-tbody');
+        tbody.innerHTML = '';
+        currentAllResults.forEach((r, index) => {
+            let shortName = r.displayName.length > 15 ? r.displayName.substring(0, 15)+'...' : r.displayName;
+            let tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><span class="badge bg-secondary">${index + 1}</span></td>
+                <td class="text-primary" style="font-size: 0.95rem;">${shortName}</td>
+                <td>${r.count}</td>
+                <td class="${parseFloat(r.ratio) > 50 ? 'text-success' : 'text-danger'}">${r.ratio}%</td>
+                <td class="text-start" style="font-size: 0.8rem;">${r.sHtml}</td>
+                <td><button class="btn btn-sm btn-outline-info py-0" style="font-size:0.75rem;" onclick="showDetail(${index})">详情</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        updateRulePanel(title, type);
+    }, 10);
+}
+
+function updateRulePanel(fullName, type) {
+    let rule = PLAY_RULES[type] || { name: fullName, odds: '-', suggest: '-' };
+    let maxMiss = 0, missDist = {};
+    if(currentAllResults.length > 0) {
+        let topEl = currentAllResults[0].element;
+        let curMiss = 0;
+        rawDraws.forEach(d => {
+            let res = checkHitAndGetOdds(type, topEl, d);
+            if (!res.isHit) { curMiss++; } 
+            else { if(curMiss > 0) { missDist[curMiss] = (missDist[curMiss] || 0) + 1; if(curMiss > maxMiss) maxMiss = curMiss; curMiss = 0; } }
+        });
+        if(curMiss > 0) { missDist[curMiss] = (missDist[curMiss] || 0) + 1; if(curMiss > maxMiss) maxMiss = curMiss; }
+    }
+    let missHtml = '';
+    for(let i=1; i<=5; i++) { if(missDist[i]) missHtml += `<span class="badge bg-secondary me-1" style="font-size:0.75rem;">连黑${i}期:${missDist[i]}次</span>`; }
+    if(!missHtml) missHtml = '<span class="text-muted small">暂无连黑记录</span>';
+
+    document.getElementById('rule-panel').innerHTML = `
+        <div class="fw-bold text-primary mb-1" style="font-size:0.95rem;">${rule.name}</div>
+        <div class="small mb-1"><span class="text-muted">赔率:</span> <strong class="text-danger">${rule.odds}</strong></div>
+        <div class="small mb-1"><span class="text-muted">建议:</span> <strong class="text-success">${rule.suggest}</strong></div>
+        <div class="border-top pt-2 mt-2">
+            <div class="small text-muted mb-1">当前范围 (${rawDraws.length}期) 第1名连黑统计:</div>
+            <div class="mb-1 text-danger fw-bold" style="font-size:0.85rem;">最大连黑: ${maxMiss} 期</div>
+            <div>${missHtml}</div>
+        </div>
+    `;
+}
+
+function showDetail(index) {
+    let r = currentAllResults[index];
+    document.getElementById('modal-title').innerText = `${r.displayName} - 命中详情`;
+    let tbody = document.getElementById('modal-tbody');
+    tbody.innerHTML = '';
+    if(r.details.length === 0) tbody.innerHTML = '<tr><td colspan="3" class="text-muted">无命中</td></tr>';
+    else [...r.details].reverse().forEach(h => {
+        tbody.innerHTML += `<tr><td>${h.issue}</td><td>${h.nums}</td><td class="text-success fw-bold">${h.hit}</td></tr>`;
+    });
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
+}
+
+// ================= 🚀 智能动态盲测 =================
+function runDynamicBlindTest() {
+    if(!currentActiveType) { alert("请先在左侧选择一种玩法！"); return; }
+    let startStr = document.getElementById('scan-start').value.trim();
+    let endStr = document.getElementById('scan-end').value.trim();
+    let nGroups = parseInt(document.getElementById('scan-groups').value);
+    let baseAmt = parseFloat(document.getElementById('scan-amount').value);
+    
+    let lifetimeStr = document.getElementById('model-lifetime').value.trim();
+    let lifetime = lifetimeStr ? parseInt(lifetimeStr) : 99999;
+    let stopThresholdStr = document.getElementById('stop-threshold').value.trim();
+    let stopThreshold = stopThresholdStr ? parseInt(stopThresholdStr) : 99999;
+    
+    let progFactorStr = document.getElementById('prog-factor').value.trim();
+    let progFactor = progFactorStr ? parseFloat(progFactorStr) : 0;
+    let stopAtStr = document.getElementById('stop-at').value.trim();
+    let stopAt = stopAtStr ? parseInt(stopAtStr) : 99999;
+    let resumeAtStr = document.getElementById('resume-at').value.trim();
+    let resumeAt = resumeAtStr ? parseInt(resumeAtStr) : 0;
+    
+    let selectedModels = [];
+    document.querySelectorAll('.model-cb:checked').forEach(cb => {
+        selectedModels.push(cb.value);
+    });
+    if(selectedModels.length === 0) { alert("请至少勾选一个模型！"); return; }
+
+    let testStartIdx = allDraws.findIndex(d => d.issue >= startStr);
+    let testEndIdx = allDraws.findIndex(d => d.issue > endStr);
+    
+    if(testStartIdx === -1) { alert("找不到开始期！"); return; }
+    if(testEndIdx === -1) testEndIdx = allDraws.length;
+    if(testEndIdx <= testStartIdx) { alert("结束期必须大于开始期！"); return; }
+
+    let tbody = document.getElementById('scan-tbody');
+    tbody.innerHTML = '<tr><td colspan="9" class="py-4 text-muted">正在执行全参数扫描...</td></tr>';
+    
+    setTimeout(() => {
+        let allResults = [];
+        // 1. 独立周期表现表 (仅使用基础本金)
+        selectedModels.forEach(m => {
+            let profit = 0, hits = 0, bets = 0, maxMiss = 0, curMiss = 0, details = [];
+            for (let i = testStartIdx; i < testEndIdx; i++) {
+                let targetDraw = allDraws[i];
+                let historyData = allDraws.slice(0, i);
+                
+                let topEls = calcRankData(historyData, m, nGroups);
+                
+                let rev = 0, hitEls = [];
+                topEls.forEach(el => {
+                    let res = checkHitAndGetOdds(currentActiveType, el, targetDraw);
+                    if (res.isHit) { rev += res.odds * baseAmt; hitEls.push(res.hitElements.join(',')); }
+                });
+                
+                let cost = topEls.length * baseAmt; 
+                bets++;
+                profit += (rev - cost);
+                
+                if (rev > 0) {
+                    hits++; curMiss = 0;
+                    details.push({ issue: targetDraw.issue, hit: hitEls.join(' | '), profit: (rev - cost).toFixed(0) });
+                } else {
+                    curMiss++; if (curMiss > maxMiss) maxMiss = curMiss;
+                }
+            }
+            if (bets > 0) {
+                allResults.push({ name: m, bets, hits, rate: (hits / bets * 100).toFixed(2), maxMiss, profit, details });
+            }
+        });
+
+        allResults.sort((a, b) => b.profit - a.profit);
+        tbody.innerHTML = '';
+        allResults.forEach((r, idx) => {
+            let invested = r.bets * nGroups * baseAmt;
+            let rowClass = idx === 0 ? 'table-success' : '';
+            // 解析名称和周期
+            let modelName = r.name.split('_')[0] === 'L' ? (r.name.startsWith('L_W') ? 'L_加权' : 'L_纯频') : r.name.split('_')[0];
+            let cycle = r.name.split('_').pop();
+            tbody.innerHTML += `
+                <tr class="${rowClass}">
+                    <td class="fw-bold">${modelName}</td>
+                    <td>${cycle}</td>
+                    <td>${r.bets}</td>
+                    <td>${r.hits}</td>
+                    <td>${r.rate}%</td>
+                    <td class="text-secondary">${r.maxMiss}</td>
+                    <td>${invested}</td>
+                    <td class="fw-bold ${r.profit >= 0 ? 'text-success' : 'text-danger'}">${r.profit.toFixed(0)}</td>
+                    <td><button class="btn btn-sm btn-outline-dark py-0" onclick="showScanDetail(${idx})">查</button></td>
+                </tr>
+            `;
+        });
+        window.scanResults = allResults;
+
+        // 2. 动态切换与资金管理日志
+        document.getElementById('lifetime-log-area').style.display = 'block';
+        let logBody = document.getElementById('blind-log');
+        logBody.innerHTML = `<div class="text-primary fw-bold mb-1">🚀 启动动态盲测 (含递进/停止/恢复)</div>`;
+        
+        let currentModel = null;
+        let profit = 0, hits = 0, bets = 0, maxMiss = 0, curMiss = 0;
+        let currentProgMultiplier = 1.0; 
+        let isStopped = false; 
+        let stopCount = 0; 
+        
+        for (let i = testStartIdx; i < testEndIdx; i++) {
+            let targetDraw = allDraws[i];
+            let historyData = allDraws.slice(0, i);
+            
+            if (bets === 0 || bets % lifetime === 0 || curMiss >= stopThreshold) {
+                let evalEnd = i;
+                let evalStart = Math.max(0, evalEnd - 60); 
+                
+                let bestScore = { profit: -999999, invested: 0, hits: 0, miss: 99 };
+                let bestModel = null;
+                
+                selectedModels.forEach(m => {
+                    let tProfit = 0, tHits = 0, tBets = 0, tMaxMiss = 0, tCurMiss = 0;
+                    for (let j = evalStart; j < evalEnd; j++) {
+                        let hData = allDraws.slice(0, j);
+                        let topEls = calcRankData(hData, m, nGroups);
+                        let rev = 0;
+                        topEls.forEach(el => {
+                            let res = checkHitAndGetOdds(currentActiveType, el, allDraws[j]);
+                            if (res.isHit) rev += res.odds * baseAmt;
+                        });
+                        tBets++;
+                        tProfit += (rev - topEls.length * baseAmt);
+                        if (rev > 0) { tHits++; tCurMiss = 0; } 
+                        else { tCurMiss++; if(tCurMiss > tMaxMiss) tMaxMiss = tCurMiss; }
+                    }
+                    
+                    let score = { profit: tProfit, invested: tBets * nGroups * baseAmt, hits: tHits, miss: tMaxMiss };
+                    let isBetter = false;
+                    
+                    if (score.profit > bestScore.profit) isBetter = true;
+                    else if (score.profit === bestScore.profit && score.invested < bestScore.invested) isBetter = true;
+                    else if (score.profit === bestScore.profit && score.invested === bestScore.invested && score.hits > bestScore.hits) isBetter = true;
+                    else if (score.profit === bestScore.profit && score.invested === bestScore.invested && score.hits === bestScore.hits && score.miss < bestScore.miss) isBetter = true;
+
+                    if (isBetter) { bestScore = score; bestModel = m; }
+                });
+                currentModel = bestModel;
+                let reason = bets === 0 ? '初始寻优' : (curMiss >= stopThreshold ? '🔥连黑熔断' : '⏰寿命到期');
+                logBody.innerHTML += `<div class="text-secondary mt-1">🔄 [第${bets+1}期 ${reason}] 切换至: <strong>${currentModel}</strong> (回溯利润: ${bestScore.profit.toFixed(0)})</div>`;
+                curMiss = 0; 
+            }
+
+            if (isStopped) {
+                stopCount++;
+                if (resumeAt > 0 && curMiss === stopAt && stopCount >= (resumeAt - stopAt + 1)) {
+                    isStopped = false;
+                    stopCount = 0;
+                    logBody.innerHTML += `<div class="text-info">▶️ ${targetDraw.issue}: 连黑达到恢复条件，重新开始下注</div>`;
+                } else {
+                    let topEls = calcRankData(historyData, currentModel, nGroups);
+                    let hit = false;
+                    topEls.forEach(el => {
+                        let res = checkHitAndGetOdds(currentActiveType, el, targetDraw);
+                        if (res.isHit) hit = true;
+                    });
+                    if (hit) { curMiss = 0; currentProgMultiplier = 1.0; } 
+                    else { curMiss++; }
+                    continue;
+                }
+            }
+
+            if (curMiss >= stopAt) {
+                isStopped = true;
+                stopCount = 0;
+                logBody.innerHTML += `<div class="text-warning">⏸️ ${targetDraw.issue}: 连黑达到 ${stopAt} 期，暂停下注</div>`;
+                let topEls = calcRankData(historyData, currentModel, nGroups);
+                let hit = false;
+                topEls.forEach(el => {
+                    let res = checkHitAndGetOdds(currentActiveType, el, targetDraw);
+                    if (res.isHit) hit = true;
+                });
+                if (hit) { curMiss = 0; currentProgMultiplier = 1.0; } 
+                else { curMiss++; }
+                continue;
+            }
+
+            let topEls = calcRankData(historyData, currentModel, nGroups);
+            let rev = 0, hitEls = [];
+            let betAmt = baseAmt * currentProgMultiplier;
+            
+            topEls.forEach(el => {
+                let res = checkHitAndGetOdds(currentActiveType, el, targetDraw);
+                if (res.isHit) { rev += res.odds * betAmt; hitEls.push(res.hitElements.join(',')); }
+            });
+
+            let cost = topEls.length * betAmt;
+            bets++;
+            profit += (rev - cost);
+            
+            if (rev > 0) {
+                hits++; curMiss = 0;
+                currentProgMultiplier = 1.0; 
+                logBody.innerHTML += `<div class="text-success">✅ ${targetDraw.issue}: 命中 [${hitEls.join('|')}] 投入 ${cost.toFixed(0)}, 盈亏 ${(rev-cost).toFixed(0)}</div>`;
+            } else {
+                curMiss++; 
+                if (curMiss > maxMiss) maxMiss = curMiss;
+                if (progFactor > 0) currentProgMultiplier *= progFactor; 
+                logBody.innerHTML += `<div class="text-muted">❌ ${targetDraw.issue}: 未中, 投入 ${cost.toFixed(0)}</div>`;
+            }
+            logBody.scrollTop = logBody.scrollHeight;
+        }
+
+        let summaryText = `总盈亏: <span class="${profit >= 0 ? 'text-success' : 'text-danger'} fw-bold">${profit.toFixed(0)}</span> 元 | 命中: ${hits} | 最大连黑: ${maxMiss}`;
+        document.getElementById('lifetime-summary').innerHTML = summaryText;
+    }, 50);
+}
+
+function showScanDetail(idx) {
+    let r = window.scanResults[idx];
+    document.getElementById('modal-title').innerText = `${r.name} - 盲测详情`;
+    let tbody = document.getElementById('modal-tbody');
+    tbody.innerHTML = '';
+    if(r.details.length === 0) tbody.innerHTML = '<tr><td colspan="3" class="text-muted">该参数下未发生命中</td></tr>';
+    else [...r.details].reverse().forEach(h => {
+        tbody.innerHTML += `<tr><td>${h.issue}</td><td class="text-success fw-bold">${h.hit}</td><td class="${h.profit>=0?'text-success':'text-danger'}">${h.profit}</td></tr>`;
+    });
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
+}
+
+// ================= 🎯 单期预测 =================
+function runPredict() {
+    if(!currentActiveType) { alert("请先在左侧选择一种玩法！"); return; }
+    let targetIssue = document.getElementById('pred-issue').value.trim();
+    let model = document.getElementById('pred-cycle').value;
+    let predCount = document.getElementById('pred-count').value;
+    
+    let limit = currentActiveN;
+    if (predCount !== 'default') limit = parseInt(predCount);
+
+    let endIdx = allDraws.length;
+    if (targetIssue) {
+        let found = allDraws.findIndex(d => d.issue === targetIssue);
+        if (found !== -1) endIdx = found;
+    }
+
+    let historyData = allDraws.slice(0, endIdx);
+    let topEls = calcRankData(historyData, model, limit);
+
+    let html = `<div class="text-start">
+        <h6 class="fw-bold mb-3">🔮 ${targetIssue || '下一期'} 预测推荐 (玩法: ${currentActiveName} | 模型: ${model})</h6>
+        <div class="d-flex flex-wrap gap-2">`;
+        
+    topEls.forEach((el, idx) => {
+        let display = el;
+        if (currentActiveType === 'zodiac') display = el + '肖';
+        if (currentActiveType === 'tail') display = el + '尾';
+        if (currentActiveType === 'zodiac2' || currentActiveType === 'zodiac3' || currentActiveType === 'zodiac4' || currentActiveType === 'zodiac5') display = el.split('-').join('+') + '肖';
+        if (currentActiveType === 'tail2' || currentActiveType === 'tail3' || currentActiveType === 'tail4' || currentActiveType === 'tail5') display = el.split('-').join('+') + '尾';
+        
+        html += `
+            <div class="card shadow-sm border-primary" style="min-width: 120px;">
+                <div class="card-body text-center p-2">
+                    <div class="text-muted small mb-1">第 ${idx+1} 名</div>
+                    <div class="fw-bold fs-6 text-primary">${display}</div>
+                </div>
+            </div>
+        `;
+    });
+    html += `</div></div>`;
+    
+    document.getElementById('pred-result').innerHTML = html;
+}
+</script>
+{% endblock %}
