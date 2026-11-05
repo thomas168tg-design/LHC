@@ -9,30 +9,22 @@ from database import query, execute, query_one
 from core.draws import fetch_from_macaujc
 from database import _post
 
-# 农历年节点
-LUNAR_NEW_YEAR = [
-    (datetime(2027, 2, 6),  "羊"), (datetime(2026, 2, 17), "马"),
-    (datetime(2025, 1, 29), "蛇"), (datetime(2024, 2, 10), "龙"),
-    (datetime(2023, 1, 22), "兔"), (datetime(2022, 2, 1),  "虎"),
-    (datetime(2021, 2, 12), "牛"), (datetime(2020, 1, 25), "鼠"),
-    (datetime(2019, 2, 5),  "猪"), (datetime(2018, 2, 16), "狗"),
-    (datetime(2017, 1, 28), "鸡"), (datetime(2016, 2, 8),  "猴"),
-]
 ZODIAC_ORDER = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"]
 
-def get_year_zodiac(dt_str):
-    """根据日期字符串返回当年的太岁生肖"""
+def get_year_zodiac(issue_str):
+    """
+    根据期号获取当年的本命生肖。
+    例如：2023001 -> 兔, 2026001 -> 马, 2027001 -> 羊
+    直接使用数学公式计算，完美支持 2027 及任意未来年份。
+    """
     try:
-        if "/" in dt_str:
-            dt = datetime.strptime(dt_str.split(" ")[0], "%Y/%m/%d")
-        else:
-            dt = datetime.strptime(dt_str.split(" ")[0], "%Y-%m-%d")
-    except:
-        return "马"
-    for start_date, zodiac in LUNAR_NEW_YEAR:
-        if dt >= start_date:
-            return zodiac
-    return "马"
+        # 提取前四位作为年份
+        year = int(str(issue_str)[:4])
+        # 2023年是兔年，ZODIAC_ORDER 中兔的下标是 3
+        offset = (year - 2023 + 3) % 12
+        return ZODIAC_ORDER[offset]
+    except Exception:
+        return "马" # 兜底
 
 def num_to_zodiac(num, year_zodiac):
     """号码转生肖"""
@@ -100,14 +92,16 @@ def get_processed_history():
     history = []
     for d in draws:
         issue, date_str, n1, n2, n3, n4, n5, n6, sp = d
-        yz = get_year_zodiac(date_str)
+        # 👇 核心修改：用期号计算生肖
+        yz = get_year_zodiac(str(issue)) 
+        
         nums = [n1, n2, n3, n4, n5, n6, sp]
         hits = {z: False for z in ZODIAC_ORDER}
         for n in nums:
             hits[num_to_zodiac(n, yz)] = True
             
         history.append({
-            "issue": str(issue), "date": date_str, "year": get_year_zodiac(date_str),
+            "issue": str(issue), "date": date_str, "year": yz,
             "nums": nums, "yz": yz, "hits": hits
         })
     return history

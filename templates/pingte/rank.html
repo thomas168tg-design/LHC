@@ -1,295 +1,499 @@
 {% extends 'pingte/base.html' %}
 
 {% block content %}
-<!-- 隐式装载 Jinja2 全量历史开奖数据 -->
+<!-- 隐式装载 Flask / Jinja2 全量开奖数据 -->
 <div id="draws-data" data-json='{{ draws | tojson }}' style="display:none;"></div>
 <div id="all-draws-data" data-json='{{ all_draws | tojson }}' style="display:none;"></div>
 
-<!-- 1. 顶部全局标题与期数过滤 -->
-<div class="d-flex justify-content-between align-items-end mb-2 flex-wrap gap-2">
-    <div>
-        <h4 class="mb-1" style="color: #0f172a; font-weight: 700;">📊 六合彩全玩法·量化分析与多组预测终端 (V4 终极精准赔率版)</h4>
-        <div class="text-muted" style="font-size: 0.85rem;">
-            数据库历史共 <strong>{{ total }}</strong> 期 | 当前分析切片 <strong>{{ draws|length }}</strong> 期 | 已启用本命肖降水与0尾升水动态赔率引擎
+<!-- 独立预测终端专用样式：Apple 风标签多选 -->
+<style>
+  .apple-check:checked + label {
+      background-color: #ff9500 !important;
+      border-color: #ff9500 !important;
+      color: #fff !important;
+      box-shadow: 0 2px 6px rgba(255, 149, 0, 0.3);
+  }
+  .apple-check + label {
+      background-color: #f5f5f7;
+      border: 1px solid #e5e5ea;
+      color: #1d1d1f;
+      transition: all 0.2s ease;
+  }
+  .apple-check + label:hover {
+      border-color: #ff9500;
+      color: #ff9500;
+  }
+  .btn-check:focus + label {
+      box-shadow: none !important;
+  }
+</style>
+
+<div class="container-fluid py-4" style="background-color: #f5f5f7; color: #1d1d1f; min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  
+  <!-- HEADER SECTION -->
+  <header class="card shadow-sm border-0 mb-4" style="border-radius: 16px; background: #fff;">
+    <div class="card-body p-4 d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+      <div class="d-flex align-items-center gap-3">
+        <div style="color: #ff9500; font-size: 2rem;">🏆</div>
+        <div>
+          <h1 class="mb-1" style="font-size: 1.4rem; font-weight: 600;">量化回测综合排行榜与系统分析 Dashboard</h1>
+          <p class="mb-0" style="font-size: 0.85rem; color: #86868b;">
+            严格基于细分赔率矩阵 (含本命肖降水 1.8x/3.5x/9x/28x • 0尾升水 2.0x • 特码46x) • 严格独立组数计奖
+          </p>
         </div>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <div class="px-3 py-2 rounded-pill" style="background: #f5f5f7; font-size: 0.85rem; color: #1d1d1f;">
+          📅 当前范围: <strong style="color: #0071e3;">{{ start_issue|default('2024001') }} ~ {{ end_issue|default('最新') }}</strong>
+        </div>
+        <div class="px-3 py-2 rounded-pill" style="background: #f5f5f7; font-size: 0.85rem; color: #1d1d1f;">
+          ⚡ 数据库全量: <strong style="color: #34c759;">{{ total }} 期</strong>
+        </div>
+      </div>
     </div>
-</div>
+  </header>
 
-<div class="card shadow-sm border-0 rounded-3 mb-2">
-    <div class="card-body py-2">
-        <form method="GET" action="/pingte/rank" class="d-flex flex-wrap align-items-center gap-2" id="query-form">
-            <span class="text-muted small me-1">回测期数切片:</span>
-            <input type="text" name="start_issue" class="form-control form-control-sm" style="width: 90px;" value="{{ start_issue }}" placeholder="开始期">
-            <span class="text-muted">-</span>
-            <input type="text" name="end_issue" class="form-control form-control-sm" style="width: 90px;" value="{{ end_issue }}" placeholder="结束期">
-            
-            <input type="hidden" name="is_custom" id="is-custom" value="0">
-            <button type="button" class="btn btn-sm btn-primary" onclick="submitCustom()">查询</button>
-
-            <select name="range_type" id="range-select" class="form-select form-select-sm" style="width: 110px;" onchange="submitRange()">
-                <option value="20" {% if range_type == '20' %}selected{% endif %}>近20期</option>
-                <option value="60" {% if range_type == '60' %}selected{% endif %}>近60期</option>
-                <option value="90" {% if range_type == '90' %}selected{% endif %}>近90期</option>
-                <option value="180" {% if range_type == '180' %}selected{% endif %}>近180期</option>
-                <option value="365" {% if range_type == '365' %}selected{% endif %}>近365期</option>
-                <option value="all" {% if range_type == 'all' %}selected{% endif %}>全历史</option>
-            </select>
-        </form>
+  <!-- TOP HIGHLIGHT CARDS -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-3 col-6">
+      <div class="card h-100 shadow-sm border-0" style="border-radius: 16px;">
+        <div class="card-body p-3">
+          <div style="font-size: 0.8rem; color: #86868b;">👑 当前选择玩法</div>
+          <div style="font-size: 1.2rem; font-weight: 600; color: #34c759; margin-top: 4px;" id="card-play-name">平特一肖</div>
+          <div style="font-size: 0.75rem; color: #86868b; margin-top: 4px;" id="card-play-odds">赔率: 普通 2.0x / 本命 1.8x</div>
+        </div>
+      </div>
     </div>
-</div>
+    <div class="col-md-3 col-6">
+      <div class="card h-100 shadow-sm border-0" style="border-radius: 16px;">
+        <div class="card-body p-3">
+          <div style="font-size: 0.8rem; color: #86868b;">🔥 默认下注组数</div>
+          <div style="font-size: 1.2rem; font-weight: 600; color: #ff9500; margin-top: 4px;" id="card-group-count">1 组 (默认)</div>
+          <div style="font-size: 0.75rem; color: #86868b; margin-top: 4px;">支持预测与盲测独立选择组数</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-6">
+      <div class="card h-100 shadow-sm border-0" style="border-radius: 16px;">
+        <div class="card-body p-3">
+          <div style="font-size: 0.8rem; color: #86868b;">🤖 推荐最佳模型</div>
+          <div style="font-size: 1.2rem; font-weight: 600; color: #0071e3; margin-top: 4px;">Aggregated_Ensemble</div>
+          <div style="font-size: 0.75rem; color: #86868b; margin-top: 4px;">3 大核心模型共识融合</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-6">
+      <div class="card h-100 shadow-sm border-0" style="border-radius: 16px;">
+        <div class="card-body p-3">
+          <div style="font-size: 0.8rem; color: #86868b;">🛡️ 风控计奖规则</div>
+          <div style="font-size: 1.2rem; font-weight: 600; color: #ff3b30; margin-top: 4px;">按组数独立计奖</div>
+          <div style="font-size: 0.75rem; color: #86868b; margin-top: 4px;">单组只命中一次，派彩不混淆</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-<div class="row g-2">
-    <!-- 左侧：全玩法面板 -->
-    <div class="col-md-4 col-lg-3">
-        <div class="card shadow-sm border-0 rounded-3 mb-2">
-            <div class="card-header bg-dark text-white py-1" style="font-size: 0.85rem; font-weight: 600;">选择测试与预测玩法</div>
-            <div class="card-body p-2" style="max-height: 70vh; overflow-y:auto;">
+  <!-- MAIN CONTENT WORKSPACE -->
+  <div class="row g-4">
+    <!-- 左侧：玩法选择与情报侧边栏 -->
+    <div class="col-md-3">
+      <div class="card shadow-sm border-0 mb-3" style="border-radius: 16px; overflow: hidden;">
+        <div class="card-header border-0 py-2 px-3" style="background: #fff;">
+          <span style="font-weight: 600; font-size: 0.95rem; color: #1d1d1f;">🎯 玩法选择 (默认 1 组)</span>
+        </div>
+        <div class="card-body p-3" style="max-height: 60vh; overflow-y: auto;">
+          
+          <div style="font-size: 0.8rem; font-weight: 500; color: #005bb5; margin-bottom: 0.5rem;">特码与特肖区</div>
+          <div class="d-grid gap-2 mb-3">
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('特码', 'special', 1, '46.0x', '单组命中派彩 46.0 倍')">🎯 特码</button>
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('特肖', 'zodiac_special', 1, '11.0x (本命10x)', '特码生肖判定')">🐅 特肖</button>
+          </div>
+
+          <div style="font-size: 0.8rem; font-weight: 500; color: #1e7e34; margin-bottom: 0.5rem;">平特肖与连肖区</div>
+          <div class="d-grid gap-2 mb-3">
+            <button class="btn btn-sm text-start play-btn active" style="font-size: 0.85rem; padding: 0.4rem 0.75rem; background: #0071e3; color: #fff; border: none;" onclick="selectPlay('平特一肖', 'zodiac', 1, '2.0x (本命1.8x)', '每组只计中一次')">🐉 平特一肖</button>
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('二连肖', 'zodiac2', 1, '4.0x (本命3.5x)', '两肖组合')">🐉 二连肖</button>
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('三连肖', 'zodiac3', 1, '10.0x (本命9.0x)', '三肖组合')">🐉 三连肖</button>
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('四连肖', 'zodiac4', 1, '30.0x (本命28.0x)', '四肖组合')">🐉 四连肖</button>
+          </div>
+
+          <div style="font-size: 0.8rem; font-weight: 500; color: #c96e00; margin-bottom: 0.5rem;">平特尾与连尾区</div>
+          <div class="d-grid gap-2">
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('平特一尾', 'tail', 1, '1.8x (0尾2.0x)', '0尾升水')">🔢 平特一尾</button>
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('二连尾', 'tail2', 1, '3.0x', '两尾组合')">🔢 二连尾</button>
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('三连尾', 'tail3', 1, '6.0x', '三尾组合')">🔢 三连尾</button>
+            <button class="btn btn-sm btn-outline-secondary text-start play-btn" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;" onclick="selectPlay('四连尾', 'tail4', 1, '16.0x', '四尾组合')">🔢 四连尾</button>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="card shadow-sm border-0" style="border-radius: 16px; border-left: 4px solid #34c759 !important;" id="rule-info-card">
+        <div class="card-body p-3">
+          <div style="color: #34c759; font-weight: 600; font-size: 0.95rem;">平特一肖</div>
+          <div style="font-size: 0.85rem; color: #1d1d1f;">基础赔率: <span style="color: #ff9500; font-weight: 600;">2.0x (本命肖 1.8x)</span></div>
+          <div style="font-size: 0.8rem; color: #86868b;">规则说明: 多组下注独立计奖，每组中奖一次</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧：工作大盘 -->
+    <div class="col-md-9">
+      <ul class="nav nav-pills mb-3 p-1 bg-white shadow-sm" style="border-radius: 12px;" id="rank-tabs">
+        <li class="nav-item flex-fill text-center">
+          <a class="nav-link active fw-bold px-4" data-bs-toggle="tab" href="#tab-predict" style="border-radius: 8px;">🎯 智能多组预测</a>
+        </li>
+        <li class="nav-item flex-fill text-center">
+          <a class="nav-link fw-bold px-4" data-bs-toggle="tab" href="#tab-blind" style="border-radius: 8px;">🚀 4大模型盲测</a>
+        </li>
+        <li class="nav-item flex-fill text-center">
+          <a class="nav-link fw-bold px-4" data-bs-toggle="tab" href="#tab-multiwindow" style="border-radius: 8px;">📊 多窗口矩阵对比</a>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+        <!-- 智能预测 -->
+        <div class="tab-pane fade show active" id="tab-predict">
+          <div class="card shadow-sm border-0" style="border-radius: 16px;">
+            <div class="card-body p-4">
+              <h5 class="mb-4" style="font-weight: 600;">🔮 目标期号多组预测推荐</h5>
+              
+              <div class="row g-3 align-items-end mb-4">
+                <div class="col-md-2">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">目标预测期号</label>
+                  <input type="text" id="pred-issue" class="form-control" placeholder="留空测下期" style="border-radius: 8px; border-color: #d2d2d7;">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">核心量化模型</label>
+                  <select id="pred-model" class="form-select" style="border-radius: 8px; border-color: #d2d2d7;">
+                    <option value="Aggregated_Ensemble" selected>Aggregated_Ensemble (3模型融合)</option>
+                    <option value="L30_Model">L30_Model (近30期频率)</option>
+                    <option value="W100_Model">W100_Model (近100期加权)</option>
+                    <option value="Weighted_Model">Weighted_Model (尾数/遗漏加权)</option>
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label" style="font-size: 0.85rem; color: #ff9500;">选择组数</label>
+                  <select id="pred-groups" class="form-select" style="border-radius: 8px; border-color: #d2d2d7; font-weight: 500;">
+                    <option value="1" selected>1 组</option>
+                    <option value="2">2 组</option>
+                    <option value="3">3 组</option>
+                    <option value="5">5 组</option>
+                    <option value="8">8 组</option>
+                    <option value="10">10 组</option>
+                    <option value="12">12 组</option>
+                    <option value="15">15 组</option>
+                  </select>
+                </div>
+                <div class="col-md-5">
+                  <div class="d-flex gap-2">
+                    <button class="btn flex-fill" style="background: #0071e3; color: #fff; border-radius: 8px; font-weight: 500;" onclick="runPredict()">🚀 生成预测推荐</button>
+                    <button class="btn flex-fill btn-outline-secondary" id="btn-copy-pred" style="border-radius: 8px; font-weight: 500;" onclick="copyPrediction()" disabled>📋 复制当前预测</button>
+                  </div>
+                </div>
+              </div>
+              
+              <div id="pred-result" class="p-4 text-center rounded-3" style="background: #f5f5f7; color: #86868b;">
+                请选择预测组数与模型后，点击【生成预测推荐】按钮。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 盲测战报 -->
+        <div class="tab-pane fade" id="tab-blind">
+          <div class="card shadow-sm border-0" style="border-radius: 16px;">
+            <div class="card-body p-4">
+              
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0" style="font-weight: 600;">📊 4 大模型平行盲测综合排行榜</h5>
+                <button class="btn" style="background: #ff3b30; color: #fff; border-radius: 8px; font-weight: 500;" onclick="runDynamicBlindTest()">▶ 运行平行盲测</button>
+              </div>
+              
+              <div class="row g-2 mb-4 p-3" style="background: #f5f5f7; border-radius: 12px;">
+                <div class="col-md-3">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">回测起始期</label>
+                  <input type="text" id="scan-start" class="form-control form-control-sm" value="2024001" style="border-radius: 8px; border-color: #d2d2d7;">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">回测结束期</label>
+                  <input type="text" id="scan-end" class="form-control form-control-sm" placeholder="最新期" style="border-radius: 8px; border-color: #d2d2d7;">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label" style="font-size: 0.85rem; color: #ff9500;">盲测下注组数</label>
+                  <select id="scan-groups" class="form-select form-select-sm" style="border-radius: 8px; border-color: #d2d2d7; font-weight: 500;">
+                    <option value="1" selected>下注 1 组</option>
+                    <option value="2">下注 2 组</option>
+                    <option value="3">下注 3 组</option>
+                    <option value="5">下注 5 组</option>
+                    <option value="8">下注 8 组</option>
+                    <option value="10">下注 10 组</option>
+                    <option value="12">下注 12 组</option>
+                    <option value="15">下注 15 组</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">单组注额 (元)</label>
+                  <input type="number" id="scan-amount" class="form-control form-control-sm" value="10" style="border-radius: 8px; border-color: #d2d2d7;">
+                </div>
+              </div>
+
+              <div class="table-responsive mb-4 rounded-3 border" style="border-color: #e5e5ea !important;">
+                <table class="table table-hover text-center align-middle mb-0" style="font-size: 0.9rem;">
+                  <thead style="background: #f5f5f7; color: #86868b;">
+                    <tr>
+                      <th style="font-weight: 500;">模型名称</th><th style="font-weight: 500;">测试期数</th><th style="font-weight: 500;">命中期数</th><th style="font-weight: 500;">胜率 (%)</th><th style="font-weight: 500;">最大连黑</th><th style="font-weight: 500;">总投入 (元)</th><th style="font-weight: 500;">净盈亏 (元)</th><th style="font-weight: 500;">ROI (%)</th><th style="font-weight: 500;">明细</th>
+                    </tr>
+                  </thead>
+                  <tbody id="scan-tbody">
+                    <tr><td colspan="9" class="text-muted py-4">选择组数后，点击【运行平行盲测】查看综合战报...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h6 class="mb-3" style="font-weight: 600;">📈 当前切片元素热度与胜率排行榜</h6>
+              <div class="table-responsive rounded-3 border" style="border-color: #e5e5ea !important;">
+                <table class="table table-hover text-center align-middle mb-0" style="font-size: 0.9rem;">
+                  <thead style="background: #f5f5f7; color: #86868b;">
+                    <tr><th style="font-weight: 500;">排名</th><th style="font-weight: 500;">元素 / 组合名称</th><th style="font-weight: 500;">历史出次</th><th style="font-weight: 500;">胜率 (%)</th><th style="font-weight: 500;">共识热度</th></tr>
+                  </thead>
+                  <tbody id="rank-tbody">
+                    <tr><td colspan="5" class="text-muted py-3">加载中...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 多窗口矩阵对比 -->
+        <div class="tab-pane fade" id="tab-multiwindow">
+          <div class="card shadow-sm border-0" style="border-radius: 16px;">
+            <div class="card-body p-4">
+              <h5 class="mb-4" style="font-weight: 600;">📊 多窗口历史回测对比</h5>
+              
+              <div class="row g-3 mb-4 align-items-end p-3" style="background: #f5f5f7; border-radius: 12px;">
+                <div class="col-md-2">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">玩法类型</label>
+                  <select id="mw-play-type" class="form-select" style="border-radius: 8px; border-color: #d2d2d7;">
+                    <option value="special">特码 (46x)</option>
+                    <option value="zodiac">平特一肖</option>
+                    <option value="tail">平特一尾</option>
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;" id="mw-k-label">买几个号 (1-20)</label>
+                  <input type="number" id="mw-k-val" class="form-control" value="10" min="1" max="20" style="border-radius: 8px; border-color: #d2d2d7;">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">单注金额 (元)</label>
+                  <input type="number" id="mw-amount" class="form-control" value="10" min="1" style="border-radius: 8px; border-color: #d2d2d7;">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">回测起始期</label>
+                  <input type="text" id="mw-start" class="form-control" placeholder="如 2026001" style="border-radius: 8px; border-color: #d2d2d7;">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label" style="font-size: 0.85rem; color: #86868b;">回测结束期</label>
+                  <input type="text" id="mw-end" class="form-control" placeholder="留空测最新" style="border-radius: 8px; border-color: #d2d2d7;">
+                </div>
+                <div class="col-md-2">
+                  <button class="btn w-100" style="background: #0071e3; color: #fff; border-radius: 8px; font-weight: 500;" onclick="runMultiWindowTest()">▶ 运行</button>
+                </div>
+              </div>
+
+              <!-- 结果表格 -->
+              <div class="table-responsive rounded-3 border mb-4" style="border-color: #e5e5ea !important;">
+                <table class="table table-hover text-center align-middle mb-0" style="font-size: 0.9rem;">
+                  <thead style="background: #f5f5f7; color: #86868b;">
+                    <tr>
+                      <th style="font-weight: 500;">窗口大小</th>
+                      <th style="font-weight: 500;">测试期数</th>
+                      <th style="font-weight: 500;">命中期数</th>
+                      <th style="font-weight: 500;">胜率</th>
+                      <th style="font-weight: 500;">单期成本</th>
+                      <th style="font-weight: 500;">总盈亏 (元)</th>
+                      <th style="font-weight: 500;">ROI</th>
+                      <th style="font-weight: 500;">最大连黑</th>
+                      <th style="font-weight: 500;">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="mw-tbody">
+                    <tr><td colspan="9" class="text-muted py-4">请设置参数后，点击运行测试...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 独立预测终端 (完美对齐 UI 版) -->
+          <div class="card shadow-sm border-0 mt-4" style="border-radius: 16px; border-left: 4px solid #ff9500 !important; background: #fffdf5;">
+            <div class="card-body p-4">
+              
+              <!-- 顶部：标题 + 按钮放右侧 -->
+              <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                <h6 class="mb-0" style="font-weight: 600; color: #c96e00; font-size: 1.1rem;">🔮 下一期独立预测终端</h6>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-sm" style="background: #ff9500; color: #fff; border-radius: 8px; font-weight: 500; padding: 0.4rem 1.2rem; white-space: nowrap; box-shadow: 0 2px 6px rgba(255, 149, 0, 0.3);" onclick="predictNextIssue()">🚀 生成预测</button>
+                  <button class="btn btn-sm" id="btn-copy-next-pred" style="border-radius: 8px; font-weight: 500; color: #ff9500; border: 1px solid #ff9500; padding: 0.4rem 1.2rem; white-space: nowrap; background: #fff;" onclick="copyNextPrediction()" disabled>📋 复制预测</button>
+                </div>
+              </div>
+              
+              <!-- 参数设置：左边多选窗口，右边目标期号 -->
+              <div class="row g-2 align-items-center mb-3">
+                <!-- 多选窗口区 -->
+                <div class="col-xl-8 col-lg-7 d-flex flex-wrap align-items-center gap-2">
+                  <span style="font-size: 0.85rem; color: #86868b; white-space: nowrap;">优先窗口:</span>
+                  <div class="d-flex flex-wrap gap-1" id="mw-window-checkboxes">
+                    <input type="checkbox" class="btn-check mw-window-cb apple-check" id="w5" value="5" autocomplete="off">
+                    <label class="btn btn-sm py-1 px-2" style="font-size: 0.8rem; border-radius: 6px;" for="w5">5期</label>
+                    
+                    <input type="checkbox" class="btn-check mw-window-cb apple-check" id="w10" value="10" autocomplete="off">
+                    <label class="btn btn-sm py-1 px-2" style="font-size: 0.8rem; border-radius: 6px;" for="w10">10期</label>
+                    
+                    <input type="checkbox" class="btn-check mw-window-cb apple-check" id="w15" value="15" checked autocomplete="off">
+                    <label class="btn btn-sm py-1 px-2" style="font-size: 0.8rem; border-radius: 6px;" for="w15">15期</label>
+                    
+                    <input type="checkbox" class="btn-check mw-window-cb apple-check" id="w20" value="20" autocomplete="off">
+                    <label class="btn btn-sm py-1 px-2" style="font-size: 0.8rem; border-radius: 6px;" for="w20">20期</label>
+                    
+                    <input type="checkbox" class="btn-check mw-window-cb apple-check" id="w30" value="30" autocomplete="off">
+                    <label class="btn btn-sm py-1 px-2" style="font-size: 0.8rem; border-radius: 6px;" for="w30">30期</label>
+                    
+                    <input type="checkbox" class="btn-check mw-window-cb apple-check" id="w60" value="60" autocomplete="off">
+                    <label class="btn btn-sm py-1 px-2" style="font-size: 0.8rem; border-radius: 6px;" for="w60">60期</label>
+                    
+                    <input type="checkbox" class="btn-check mw-window-cb apple-check" id="w120" value="120" checked autocomplete="off">
+                    <label class="btn btn-sm py-1 px-2" style="font-size: 0.8rem; border-radius: 6px;" for="w120">120期</label>
+                    
+                    <input type="checkbox" class="btn-check mw-window-cb apple-check" id="w180" value="180" checked autocomplete="off">
+                    <label class="btn btn-sm py-1 px-2" style="font-size: 0.8rem; border-radius: 6px;" for="w180">180期</label>
+                  </div>
+                </div>
                 
-                <!-- 1. 特码/特肖区 -->
-                <div class="mb-2">
-                    <div class="text-muted mb-1" style="font-size:0.75rem; font-weight:bold; color:#0284c7;">🎯 特码 / 特肖区 (赔率精准区分)</div>
-                    <div class="d-flex flex-wrap gap-1">
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('特码 5码', 'special', 5)">特码5码</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('特码 12码', 'special', 12)">特码12码</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('特肖 (1-5组)', 'zodiac_special', 5)">特肖 1-5组</button>
-                    </div>
+                <!-- 目标期号输入区 -->
+                <div class="col-xl-4 col-lg-5 d-flex align-items-center justify-content-lg-end gap-2">
+                  <span style="font-size: 0.85rem; color: #86868b; white-space: nowrap;">目标期号:</span>
+                  <input type="text" id="mw-predict-target-issue" class="form-control form-control-sm" placeholder="留空自动推算" style="border-radius: 8px; border-color: #d2d2d7; width: 120px;">
                 </div>
-
-                <!-- 2. 平特肖 / 连肖区 -->
-                <div class="mb-2">
-                    <div class="text-muted mb-1" style="font-size:0.75rem; font-weight:bold; color:#16a34a;">🐉 平特肖 / 连肖区 (含本命肖自动降水)</div>
-                    <div class="d-flex flex-wrap gap-1">
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特一肖', 'zodiac', 12)">平特一肖</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('二连肖 (1-2组)', 'zodiac2', 2)">二连肖</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('三连肖 (1-5组)', 'zodiac3', 5)">三连肖</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('四连肖 (1-15组)', 'zodiac4', 15)">四连肖</button>
-                    </div>
-                </div>
-
-                <!-- 3. 平特尾 / 连尾区 -->
-                <div class="mb-2">
-                    <div class="text-muted mb-1" style="font-size:0.75rem; font-weight:bold; color:#ea580c;">🔢 平特尾 / 连尾区 (含0尾特殊赔率)</div>
-                    <div class="d-flex flex-wrap gap-1">
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('平特一尾', 'tail', 10)">平特一尾</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('二连尾 (1-2组)', 'tail2', 2)">二连尾</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('三连尾 (1-3组)', 'tail3', 3)">三连尾</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('四连尾 (1-8组)', 'tail4', 8)">四连尾</button>
-                    </div>
-                </div>
-
-                <!-- 4. 组合区与不中区 -->
-                <div class="mb-2">
-                    <div class="text-muted mb-1" style="font-size:0.75rem; font-weight:bold; color:#9333ea;">🎲 组合与连码区</div>
-                    <div class="d-flex flex-wrap gap-1">
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('二中二', 'erzhonger', 10)">二中二</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('三中二', 'sanzhonger', 10)">三中二</button>
-                    </div>
-                </div>
-                <div>
-                    <div class="text-muted mb-1" style="font-size:0.75rem; font-weight:bold; color:#475569;">🛡️ 不中区</div>
-                    <div class="d-flex flex-wrap gap-1">
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('不中5码', 'bu5', 5)">不中5码</button>
-                        <button class="btn btn-outline-secondary btn-sm rank-btn flex-fill py-0" style="font-size: 0.75rem;" onclick="fetchRank('不中10码', 'bu10', 5)">不中10码</button>
-                    </div>
-                </div>
-
+              </div>
+              
+              <!-- 结果展示区 -->
+              <div id="mw-next-result" class="mt-3">
+                <div class="text-muted text-center py-4">选择优先窗口后，系统将基于回测结束期数据预测下一期。</div>
+              </div>
             </div>
+          </div>
+
         </div>
-        
-        <!-- 玩法盘口规则情报 -->
-        <div class="card shadow-sm border-0 rounded-3 mb-2 border-start border-4 border-success">
-            <div class="card-body py-2 px-3" id="rule-panel">
-                <div class="text-muted small">👈 请点击左侧玩法查看盘口赔率与情报</div>
-            </div>
-        </div>
+
+      </div>
     </div>
-
-    <!-- 右侧：工作主区 -->
-    <div class="col-md-8 col-lg-9">
-        <ul class="nav nav-tabs mb-2">
-            <li class="nav-item"><a class="nav-link active fw-bold" data-bs-toggle="tab" href="#tab-predict">🎯 单期 / 多组智能预测</a></li>
-            <li class="nav-item"><a class="nav-link fw-bold text-danger" data-bs-toggle="tab" href="#tab-blind">🚀 四大模型量化盲测</a></li>
-            <li class="nav-item"><a class="nav-link fw-bold text-primary" data-bs-toggle="tab" href="#tab-rank">📈 元素分布排行榜</a></li>
-        </ul>
-
-        <div class="tab-content">
-            <!-- 1. 🎯 预测面板 -->
-            <div class="tab-pane fade show active" id="tab-predict">
-                <div class="card shadow-sm border-0 rounded-3 border-start border-4 border-primary">
-                    <div class="card-body p-3">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="fw-bold mb-0 text-primary">🔮 下一期 / 指定期数多组预测推荐</h5>
-                            <span class="badge bg-primary fs-6" id="current-play-badge">当前玩法: 平特一肖</span>
-                        </div>
-                        
-                        <div class="row g-2 align-items-end mb-3">
-                            <div class="col-md-3">
-                                <label class="fw-bold small mb-1">目标预测期号</label>
-                                <input type="text" id="pred-issue" class="form-control form-control-sm" placeholder="自动下一期或输入期号">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="fw-bold small mb-1">核心量化模型</label>
-                                <select id="pred-model" class="form-select form-select-sm">
-                                    <option value="Aggregated_Ensemble" selected>Aggregated_Ensemble (3模型融合共识)</option>
-                                    <option value="L30_Model">L30_Model (近30期频率排名)</option>
-                                    <option value="W100_Model">W100_Model (近100期加权)</option>
-                                    <option value="Weighted_Model">Weighted_Model (尾数/遗漏加权)</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="fw-bold small mb-1">生成下注组数</label>
-                                <select id="pred-groups" class="form-select form-select-sm">
-                                    <option value="1">推荐 1 组 (精选首选)</option>
-                                    <option value="2">推荐 2 组</option>
-                                    <option value="3">推荐 3 组</option>
-                                    <option value="5" selected>推荐 5 组</option>
-                                    <option value="8">推荐 8 组</option>
-                                    <option value="12">推荐 12 组</option>
-                                    <option value="15">推荐 15 组</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <button class="btn btn-primary btn-sm w-100 fw-bold" onclick="runPredict()">🚀 生成预测推荐</button>
-                            </div>
-                        </div>
-                        
-                        <!-- 预测结果展示区 -->
-                        <div id="pred-result" class="bg-light p-3 rounded border text-center text-muted">
-                            请配置目标期号与模型后，点击【生成预测推荐】按钮。
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 2. 🚀 动态盲测面板 -->
-            <div class="tab-pane fade" id="tab-blind">
-                <div class="card shadow-sm border-0 rounded-3 border-start border-4 border-danger">
-                    <div class="card-body p-3 bg-light">
-                        <div class="alert alert-danger py-2 mb-3" style="font-size: 0.85rem;">
-                            <strong>严格无偏盲测系统：</strong> 4大模型完全基于历史前推数据计算，严格遵循盘口真实规则扣算（含本命肖降水/0尾升水）。
-                        </div>
-                        
-                        <div class="row g-2 mb-3">
-                            <div class="col-md-3">
-                                <label class="form-label mb-0 fw-bold small">回测起始期</label>
-                                <input type="text" id="scan-start" class="form-control form-control-sm" value="2024001" placeholder="如 2024001">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label mb-0 fw-bold small">回测结束期</label>
-                                <input type="text" id="scan-end" class="form-control form-control-sm" placeholder="默认全量最新期">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label mb-0 fw-bold small">固定下注组数</label>
-                                <input type="number" id="scan-groups" class="form-control form-control-sm" value="5" min="1">
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label mb-0 fw-bold small">每组注额 (元)</label>
-                                <input type="number" id="scan-amount" class="form-control form-control-sm" value="10">
-                            </div>
-                        </div>
-
-                        <button class="btn btn-danger w-100 fw-bold mb-3" onclick="runDynamicBlindTest()">启动 4 大模型平行盲测</button>
-
-                        <!-- 对比表格 -->
-                        <div class="table-responsive bg-white rounded border mb-3" style="max-height: 350px;">
-                            <table class="table table-sm table-hover text-center align-middle mb-0">
-                                <thead class="table-dark sticky-top">
-                                    <tr>
-                                        <th>模型名称</th><th>测试期数</th><th>命中期数</th><th>胜率 (%)</th><th>最大连黑</th><th>总投入 (元)</th><th>净盈亏 (元)</th><th>ROI (%)</th><th>明细</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="scan-tbody">
-                                    <tr><td colspan="9" class="text-muted py-3">点击上方按钮开始回测...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 3. 📈 排行榜面板 -->
-            <div class="tab-pane fade" id="tab-rank">
-                <div class="card shadow-sm border-0 rounded-3 mb-2">
-                    <div class="card-header bg-light d-flex justify-content-between align-items-center py-2 border-bottom">
-                        <span class="fs-6" id="rank-title">平特一肖 - 热度排行榜</span>
-                        <span class="badge bg-secondary">当前分析范围分布</span>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
-                            <table class="table table-hover text-center align-middle mb-0">
-                                <thead class="table-light sticky-top">
-                                    <tr><th width="10%">排名</th><th width="25%">元素/组合</th><th width="15%">出次</th><th width="15%">命中率</th><th width="25%">连中记录</th><th width="15%">操作</th></tr>
-                                </thead>
-                                <tbody id="rank-tbody"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+  </div>
 </div>
 
-<!-- 开奖与命细节 Modal -->
+<!-- Modal 弹窗美化 -->
 <div class="modal fade" id="detailModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-dark text-white py-2">
-                <h6 class="modal-title" id="modal-title">命中与赔率结算细节</h6>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-0">
-                <div class="table-responsive" style="max-height: 60vh;">
-                    <table class="table table-sm table-striped text-center align-middle mb-0">
-                        <thead class="table-light sticky-top"><tr><th>期号</th><th>实际开奖号码</th><th>命中详情</th><th>单期盈亏</th></tr></thead>
-                        <tbody id="modal-tbody"></tbody>
-                    </table>
-                </div>
-            </div>
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content border-0 shadow" style="border-radius: 16px;">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title" id="modal-title" style="font-weight: 600; color: #1d1d1f;">逐期盲测独立计奖明细</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0 mt-3">
+        <div class="table-responsive" style="max-height: 60vh;">
+          <table class="table table-hover text-center align-middle mb-0" style="font-size: 0.85rem;">
+            <thead class="table-light" style="position: sticky; top: 0;">
+              <tr><th style="font-weight: 500; color: #86868b;">期号</th><th style="font-weight: 500; color: #86868b;">下注元素</th><th style="font-weight: 500; color: #86868b;">开奖与派彩细节</th><th style="font-weight: 500; color: #86868b;">单期盈亏 (元)</th></tr>
+            </thead>
+            <tbody id="modal-tbody"></tbody>
+          </table>
         </div>
+      </div>
     </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// 装载后端 Jinja2 全量历史开奖数据
+// ==========================================
+// 基础数据与全局变量
+// ==========================================
 const rawDraws = JSON.parse(document.getElementById('draws-data').dataset.json).sort((a,b) => a.issue.localeCompare(b.issue));
 const allDraws = JSON.parse(document.getElementById('all-draws-data').dataset.json).sort((a,b) => a.issue.localeCompare(b.issue));
 
 let currentActiveType = 'zodiac';
 let currentActiveName = '平特一肖';
-let currentActiveN = 12;
-
-// 精细对齐的盘口赔率标准 (包含本命肖与0尾分支)
-const PLAY_RULES = {
-    'special': { name: '特码', odds: '46.0 倍', suggest: '5, 12组' },
-    'zodiac_special': { name: '特肖', odds: '普通 11.0 / 本命 10.0 倍', suggest: '1-5组' },
-    'zodiac': { name: '平特一肖', odds: '普通 2.0 / 本命 1.8 倍', suggest: '1组' },
-    'zodiac2': { name: '二连肖', odds: '普通 4.0 / 含本命 3.5 倍', suggest: '1, 2组' },
-    'zodiac3': { name: '三连肖', odds: '普通 10.0 / 含本命 9.0 倍', suggest: '1-5组' },
-    'zodiac4': { name: '四连肖', odds: '普通 30.0 / 含本命 28.0 倍', suggest: '1-15组' },
-    'tail': { name: '平特一尾', odds: '普通 1.8 / 0尾 2.0 倍', suggest: '1组' },
-    'tail2': { name: '二连尾', odds: '3.0 倍', suggest: '1, 2组' },
-    'tail3': { name: '三连尾', odds: '6.0 倍', suggest: '1-3组' },
-    'tail4': { name: '四连尾', odds: '16.0 倍', suggest: '1-8组' },
-    'erzhonger': { name: '二中二', odds: '60.0 倍', suggest: '10组' },
-    'sanzhonger': { name: '三中二', odds: '20.0 / 60.0 倍', suggest: '10组' },
-    'bu5': { name: '不中5码', odds: '2.0 倍', suggest: '1组' },
-    'bu10': { name: '不中10码', odds: '5.0 倍', suggest: '1组' }
-};
+let currentActiveDefaultGroups = 1;
+let globalScanResults = [];
+let currentPredictions = [];
+let mwGlobalDetails = []; 
+let nextPredictionsText = ""; // 用于复制最新预测结果
 
 // 生肖与本命肖逻辑
-function getZodiac(num, yearStr) {
+const LUNAR_NEW_YEAR_DATES = {
+    2023: '2023-01-22', 2024: '2024-02-10', 2025: '2025-01-29',
+    2026: '2026-02-17', 2027: '2027-02-06', 2028: '2028-01-26',
+    2029: '2029-02-13', 2030: '2030-02-03'
+};
+
+function getYearZodiac(yearStr) {
     const zodiacs = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪'];
-    let offset = (parseInt(yearStr) - 2024) % 12;
-    return zodiacs[(num - 1 + offset * 4) % 12];
+    let offset = (parseInt(yearStr) - 2023 + 3) % 12;
+    if (offset < 0) offset += 12;
+    return zodiacs[offset];
 }
 
-function getCurrentYearZodiac(yearStr) {
+function getZodiacTableYear(issueStr, drawDateStr) {
+    let issueYear = parseInt(issueStr.substring(0, 4));
+    if (!drawDateStr) return issueYear;
+    let normalizedDate = drawDateStr.replace(/\//g, '-');
+    let lunarNewYear = LUNAR_NEW_YEAR_DATES[issueYear];
+    if (lunarNewYear && normalizedDate < lunarNewYear) return issueYear - 1;
+    return issueYear;
+}
+
+function buildZodiacMap(tableYear) {
     const zodiacs = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪'];
-    let offset = (parseInt(yearStr) - 2024) % 12;
-    return zodiacs[(offset % 12 + 12) % 12];
+    const yearZodiac = getYearZodiac(tableYear);
+    let yearZodiacIndex = zodiacs.indexOf(yearZodiac);
+    let map = {};
+    map[yearZodiac] = [1, 13, 25, 37, 49];
+    let offsets = [-1, -2, -3, -4, -5, -6, -7, -8, -9, -10, 1];
+    offsets.forEach(d => {
+        let zodiacIdx = (yearZodiacIndex + d) % 12;
+        if (zodiacIdx < 0) zodiacIdx += 12;
+        let zodiacName = zodiacs[zodiacIdx];
+        let start = d < 0 ? (-d) + 1 : 12;
+        let nums = [];
+        for (let k = 0; k < 4; k++) {
+            let num = start + 12 * k;
+            if (num <= 49) nums.push(num);
+        }
+        map[zodiacName] = nums;
+    });
+    return map;
+}
+
+const zodiacMapCache = {};
+function getZodiacMapForYear(tableYear) {
+    if (!zodiacMapCache[tableYear]) zodiacMapCache[tableYear] = buildZodiacMap(tableYear);
+    return zodiacMapCache[tableYear];
+}
+
+function getZodiac(num, issueStr, drawDateStr) {
+    let tableYear = getZodiacTableYear(issueStr, drawDateStr);
+    let map = getZodiacMapForYear(tableYear);
+    for (let z in map) {
+        if (map[z].includes(num)) return z;
+    }
+    return '';
+}
+
+function getCurrentYearZodiac(issueStr, drawDateStr) {
+    let tableYear = getZodiacTableYear(issueStr, drawDateStr);
+    return getYearZodiac(tableYear);
 }
 
 function getTail(num) { return num % 10; }
@@ -305,24 +509,21 @@ function getCombinations(arr, size) {
     backtrack(0, []); return result;
 }
 
-// 4大核心量化模型计分引擎
+// ==========================================
+// 基础盲测模型计算
+// ==========================================
 function calcNumScores(historyDraws) {
     let l30 = historyDraws.slice(-30);
-    let l30Freq = {};
-    for(let n=1; n<=49; n++) l30Freq[n] = 0;
-    l30.forEach(d => { (d.nums || d.all_7_balls || []).forEach(n => l30Freq[n]++); });
+    let l30Freq = {}; for(let n=1; n<=49; n++) l30Freq[n] = 0;
+    l30.forEach(d => (d.nums || d.all_7_balls || []).forEach(n => l30Freq[n]++));
 
     let w100 = historyDraws.slice(-100);
-    let w100Freq = {};
-    for(let n=1; n<=49; n++) w100Freq[n] = 0;
-    w100.forEach(d => { (d.nums || d.all_7_balls || []).forEach(n => w100Freq[n]++); });
+    let w100Freq = {}; for(let n=1; n<=49; n++) w100Freq[n] = 0;
+    w100.forEach(d => (d.nums || d.all_7_balls || []).forEach(n => w100Freq[n]++));
 
     let totalLen = historyDraws.length;
-    let lastPos = {}, tailCounts = {};
-    for(let t=0; t<10; t++) tailCounts[t] = 0;
-    
-    let l50 = historyDraws.slice(-50);
-    l50.forEach((d, i) => {
+    let lastPos = {}, tailCounts = {}; for(let t=0; t<10; t++) tailCounts[t] = 0;
+    historyDraws.slice(-50).forEach((d, i) => {
         (d.nums || d.all_7_balls || []).forEach(n => {
             lastPos[n] = i;
             tailCounts[n % 10]++;
@@ -338,20 +539,15 @@ function calcNumScores(historyDraws) {
     let agg = {};
     for(let n=1; n<=49; n++) agg[n] = l30Freq[n] + w100Freq[n] + weighted[n];
 
-    return {
-        "L30_Model": l30Freq,
-        "W100_Model": w100Freq,
-        "Weighted_Model": weighted,
-        "Aggregated_Ensemble": agg
-    };
+    return { "L30_Model": l30Freq, "W100_Model": w100Freq, "Weighted_Model": weighted, "Aggregated_Ensemble": agg };
 }
 
-// 根据选择的玩法从号码分值导出推荐组合
 function getRankDataByModel(historyDraws, modelName, type, limit) {
     let scoresMap = calcNumScores(historyDraws);
     let numScores = scoresMap[modelName];
     let lastDraw = historyDraws[historyDraws.length - 1];
-    let yearStr = lastDraw ? (lastDraw.issue ? lastDraw.issue.substring(0, 4) : '2026') : '2026';
+    let lastIssueStr = lastDraw && lastDraw.issue ? lastDraw.issue : '';
+    let lastDrawDateStr = lastDraw && (lastDraw.date || lastDraw.draw_date) ? (lastDraw.date || lastDraw.draw_date) : '';
 
     if (type === 'special') {
         return Object.keys(numScores).map(Number).sort((a,b) => numScores[b] - numScores[a]).slice(0, limit);
@@ -359,24 +555,22 @@ function getRankDataByModel(historyDraws, modelName, type, limit) {
     else if (type === 'zodiac_special' || type.startsWith('zodiac')) {
         let zodScores = {};
         for(let n=1; n<=49; n++) {
-            let z = getZodiac(n, yearStr);
+            let z = getZodiac(n, lastIssueStr, lastDrawDateStr);
             zodScores[z] = (zodScores[z] || 0) + numScores[n];
         }
         let sortedZods = Object.keys(zodScores).sort((a,b) => zodScores[b] - zodScores[a]);
-        
         let comboSize = 1;
         if (type === 'zodiac2') comboSize = 2;
         else if (type === 'zodiac3') comboSize = 3;
         else if (type === 'zodiac4') comboSize = 4;
         
         if (comboSize === 1) return sortedZods.slice(0, limit);
-        
         let pool = sortedZods.slice(0, Math.min(sortedZods.length, comboSize + 4));
         let allCombos = getCombinations(pool, comboSize);
         allCombos.sort((a,b) => {
-            let scoreA = a.reduce((sum, z) => sum + zodScores[z], 0);
-            let scoreB = b.reduce((sum, z) => sum + zodScores[z], 0);
-            return scoreB - scoreA;
+            let sA = a.reduce((sum, z) => sum + zodScores[z], 0);
+            let sB = b.reduce((sum, z) => sum + zodScores[z], 0);
+            return sB - sA;
         });
         return allCombos.map(c => c.join('-')).slice(0, limit);
     }
@@ -387,135 +581,144 @@ function getRankDataByModel(historyDraws, modelName, type, limit) {
             tailScores[t] = (tailScores[t] || 0) + numScores[n];
         }
         let sortedTails = Object.keys(tailScores).map(Number).sort((a,b) => tailScores[b] - tailScores[a]);
-        
         let comboSize = 1;
         if (type === 'tail2') comboSize = 2;
         else if (type === 'tail3') comboSize = 3;
         else if (type === 'tail4') comboSize = 4;
         
         if (comboSize === 1) return sortedTails.slice(0, limit);
-
         let pool = sortedTails.slice(0, Math.min(sortedTails.length, comboSize + 4));
         let allCombos = getCombinations(pool, comboSize);
         allCombos.sort((a,b) => {
-            let scoreA = a.reduce((sum, t) => sum + tailScores[t], 0);
-            let scoreB = b.reduce((sum, t) => sum + tailScores[t], 0);
-            return scoreB - scoreA;
+            let sA = a.reduce((sum, t) => sum + tailScores[t], 0);
+            let sB = b.reduce((sum, t) => sum + tailScores[t], 0);
+            return sB - sA;
         });
         return allCombos.map(c => c.join('-')).slice(0, limit);
     }
-    
     return Object.keys(numScores).map(Number).sort((a,b) => numScores[b] - numScores[a]).slice(0, limit);
 }
 
-// 精准盘口赔率核算逻辑
-function checkHitAndGetOddsExact(type, element, draw) {
-    let yearStr = draw.issue ? draw.issue.substring(0, 4) : '2026';
-    let currentYearZodiac = getCurrentYearZodiac(yearStr);
-    
+function calculateMultiGroupBet(topEls, draw, type, baseAmt) {
+    let issueStr = draw.issue || '';
+    let drawDateStr = draw.date || draw.draw_date || '';
+    let currentYearZodiac = getCurrentYearZodiac(issueStr, drawDateStr);
     let balls = draw.all_7_balls || draw.nums || [];
     let specialNum = draw.special !== undefined ? draw.special : balls[6];
-    let actualZodiacs = new Set(balls.map(n => getZodiac(n, yearStr)));
+    let actualZodiacs = new Set(balls.map(n => getZodiac(n, issueStr, drawDateStr)));
     let actualTails = new Set(balls.map(n => getTail(n)));
-    let actualSpecialZodiac = getZodiac(specialNum, yearStr);
-    
-    let isHit = false, revenue = 0;
+    let actualSpecialZodiac = getZodiac(specialNum, issueStr, drawDateStr);
 
-    if (type === 'special') {
-        if (parseInt(element) === specialNum) { isHit = true; revenue = 46.0 * 10; }
-    }
-    else if (type === 'zodiac_special') {
-        if (element === actualSpecialZodiac) {
-            isHit = true;
-            let odds = (element === currentYearZodiac) ? 10.0 : 11.0;
-            revenue = odds * 10;
-        }
-    }
-    else if (type.startsWith('zodiac')) {
-        let combo = element.split('-');
-        if (combo.every(z => actualZodiacs.has(z))) {
-            isHit = true;
-            let hasBenming = combo.includes(currentYearZodiac);
-            let odds = 2.0;
-            if (combo.length === 1) odds = hasBenming ? 1.8 : 2.0;
-            else if (combo.length === 2) odds = hasBenming ? 3.5 : 4.0;
-            else if (combo.length === 3) odds = hasBenming ? 9.0 : 10.0;
-            else if (combo.length === 4) odds = hasBenming ? 28.0 : 30.0;
-            revenue = odds * 10;
-        }
-    }
-    else if (type.startsWith('tail')) {
-        let combo = element.toString().split('-').map(Number);
-        if (combo.every(t => actualTails.has(t))) {
-            isHit = true;
-            let odds = 1.8;
-            if (combo.length === 1) odds = combo.includes(0) ? 2.0 : 1.8;
-            else if (combo.length === 2) odds = 3.0;
-            else if (combo.length === 3) odds = 6.0;
-            else if (combo.length === 4) odds = 16.0;
-            revenue = odds * 10;
-        }
-    }
+    let totalCost = topEls.length * baseAmt;
+    let totalRevenue = 0;
+    let hitDetails = [];
 
-    return { isHit, revenue, profit: revenue - 10 };
+    topEls.forEach(el => {
+        let isHit = false, odds = 0;
+
+        if (type === 'special') {
+            if (parseInt(el) === specialNum) { isHit = true; odds = 46.0; }
+        }
+        else if (type === 'zodiac_special') {
+            if (el === actualSpecialZodiac) { isHit = true; odds = (el === currentYearZodiac) ? 10.0 : 11.0; }
+        }
+        else if (type.startsWith('zodiac')) {
+            let combo = el.toString().split('-');
+            if (combo.every(z => actualZodiacs.has(z))) {
+                isHit = true;
+                let hasBenming = combo.includes(currentYearZodiac);
+                if (combo.length === 1) odds = hasBenming ? 1.8 : 2.0;
+                else if (combo.length === 2) odds = hasBenming ? 3.5 : 4.0;
+                else if (combo.length === 3) odds = hasBenming ? 9.0 : 10.0;
+                else if (combo.length === 4) odds = hasBenming ? 28.0 : 30.0;
+            }
+        }
+        else if (type.startsWith('tail')) {
+            let combo = el.toString().split('-').map(Number);
+            if (combo.every(t => actualTails.has(t))) {
+                isHit = true;
+                if (combo.length === 1) odds = combo.includes(0) ? 2.0 : 1.8;
+                else if (combo.length === 2) odds = 3.0;
+                else if (combo.length === 3) odds = 6.0;
+                else if (combo.length === 4) odds = 16.0;
+            }
+        }
+
+        if (isHit) {
+            totalRevenue += odds * baseAmt;
+            hitDetails.push(`[${el}中]`);
+        }
+    });
+
+    let profit = totalRevenue - totalCost;
+    return { isHit: hitDetails.length > 0, totalCost, totalRevenue, profit, hitStr: hitDetails.join(' ') };
 }
 
-// 切换玩法响应
-function fetchRank(title, type, defaultN) {
+// ==========================================
+// 玩法选择与预测区
+// ==========================================
+function selectPlay(name, type, defaultGroupCount, oddsText, descText) {
     currentActiveType = type;
-    currentActiveName = title;
-    currentActiveN = defaultN;
+    currentActiveName = name;
+    currentActiveDefaultGroups = defaultGroupCount;
+
+    document.getElementById('card-play-name').innerText = name;
+    document.getElementById('card-play-odds').innerText = `赔率: ${oddsText}`;
     
-    document.querySelectorAll('.rank-btn').forEach(b => b.classList.remove('active', 'btn-dark', 'text-white'));
-    if (event) event.target.classList.add('active', 'btn-dark', 'text-white');
-    
-    document.getElementById('current-play-badge').innerText = `当前玩法: ${title}`;
-    document.getElementById('rank-title').innerText = `${title} - 元素分布`;
-    
-    updateRulePanel(type);
+    document.querySelectorAll('.play-btn').forEach(b => {
+        b.style.background = '';
+        b.style.color = '';
+        b.style.border = '';
+        b.classList.remove('active');
+        b.classList.add('btn-outline-secondary');
+    });
+    if (event && event.target) {
+        const btn = event.target;
+        btn.classList.remove('btn-outline-secondary');
+        btn.style.background = '#0071e3';
+        btn.style.color = '#fff';
+        btn.style.border = 'none';
+        btn.classList.add('active');
+    }
+
+    document.getElementById('rule-info-card').innerHTML = `
+        <div class="card-body p-3">
+          <div style="color: #34c759; font-weight: 600; font-size: 0.95rem;">${name}</div>
+          <div style="font-size: 0.85rem; color: #1d1d1f;">基础赔率: <span style="color: #ff9500; font-weight: 600;">${oddsText}</span></div>
+          <div style="font-size: 0.8rem; color: #86868b;">规则说明: ${descText}</div>
+        </div>
+    `;
+
     renderRankTable();
 }
 
-function updateRulePanel(type) {
-    let rule = PLAY_RULES[type] || { name: currentActiveName, odds: '-', suggest: '-' };
-    document.getElementById('rule-panel').innerHTML = `
-        <div class="fw-bold text-success mb-1" style="font-size:0.95rem;">${rule.name}</div>
-        <div class="small mb-1"><span class="text-muted">盘口赔率:</span> <strong class="text-danger">${rule.odds}</strong></div>
-        <div class="small"><span class="text-muted">矩阵推荐组数:</span> <strong class="text-primary">${rule.suggest}</strong></div>
-    `;
-}
-
-// 渲染排行榜表格
 function renderRankTable() {
     let tbody = document.getElementById('rank-tbody');
     tbody.innerHTML = '';
-    
-    let topEls = getRankDataByModel(rawDraws, 'Aggregated_Ensemble', currentActiveType, 15);
+    let topEls = getRankDataByModel(rawDraws, 'Aggregated_Ensemble', currentActiveType, 10);
     topEls.forEach((el, idx) => {
         let hits = 0;
         rawDraws.forEach(d => {
-            let res = checkHitAndGetOddsExact(currentActiveType, el, d);
+            let res = calculateMultiGroupBet([el], d, currentActiveType, 10);
             if (res.isHit) hits++;
         });
-        let ratio = ((hits / rawDraws.length) * 100).toFixed(1);
-        let tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><span class="badge bg-secondary">${idx + 1}</span></td>
-            <td class="fw-bold text-primary">${el}</td>
-            <td>${hits}</td>
-            <td class="${parseFloat(ratio) > 30 ? 'text-success' : 'text-danger'}">${ratio}%</td>
-            <td><span class="text-muted small">正常记录</span></td>
-            <td><button class="btn btn-sm btn-outline-info py-0" style="font-size:0.75rem;">详情</button></td>
+        let ratio = rawDraws.length > 0 ? ((hits / rawDraws.length) * 100).toFixed(1) : '0.0';
+        tbody.innerHTML += `
+            <tr>
+                <td><span class="badge" style="background:#f5f5f7; color:#1d1d1f; border:1px solid #e5e5ea; font-weight:normal;">${idx + 1}</span></td>
+                <td style="color: #0071e3; font-weight: 500;">${el}</td>
+                <td style="color: #1d1d1f;">${hits}</td>
+                <td style="color: ${parseFloat(ratio) > 30 ? '#34c759' : '#ff3b30'}; font-weight: 500;">${ratio}%</td>
+                <td style="color: #ff9500; font-weight: 500;">高共识</td>
+            </tr>
         `;
-        tbody.appendChild(tr);
     });
 }
 
-// ================= 🎯 核心预测功能 =================
 function runPredict() {
     let targetIssue = document.getElementById('pred-issue').value.trim();
     let modelName = document.getElementById('pred-model').value;
-    let nGroups = parseInt(document.getElementById('pred-groups').value);
+    let nGroups = parseInt(document.getElementById('pred-groups').value) || 1;
 
     let endIdx = allDraws.length;
     if (targetIssue) {
@@ -526,35 +729,74 @@ function runPredict() {
     let historyData = allDraws.slice(0, endIdx);
     let topEls = getRankDataByModel(historyData, modelName, currentActiveType, nGroups);
 
+    currentPredictions = topEls;
+    const btnCopy = document.getElementById('btn-copy-pred');
+    if (currentPredictions.length > 0) {
+        btnCopy.removeAttribute('disabled');
+        btnCopy.classList.remove('btn-outline-secondary');
+        btnCopy.classList.add('btn-outline-primary');
+    } else {
+        btnCopy.setAttribute('disabled', 'disabled');
+        btnCopy.classList.add('btn-outline-secondary');
+        btnCopy.classList.remove('btn-outline-primary');
+    }
+
     let html = `<div class="text-start">
-        <h6 class="fw-bold mb-3 text-dark">🔮 预测期号: <span class="text-danger">${targetIssue || '下一期'}</span> | 玩法: <span class="text-primary">${currentActiveName}</span> | 模型: <span class="text-success">${modelName}</span></h6>
-        <div class="row g-2">`;
+        <h6 class="mb-3" style="font-weight:600; color: #1d1d1f;">🔮 目标期号: <span style="color: #ff3b30;">${targetIssue || '下一期'}</span> | 玩法: <span style="color: #0071e3;">${currentActiveName}</span> | 模型: <span style="color: #34c759;">${modelName}</span> | 已选下注: <span style="color: #ff9500;">${nGroups} 组</span></h6>
+        <div class="row g-3">`;
         
     topEls.forEach((el, idx) => {
-        let displayStr = el;
-        if (typeof el === 'number' && !currentActiveType.includes('special')) displayStr = el + '尾';
         html += `
-            <div class="col-md-4 col-6">
-                <div class="card border-primary shadow-sm text-center">
-                    <div class="card-body p-2">
-                        <div class="text-muted small">推荐第 ${idx + 1} 组</div>
-                        <div class="fw-bold fs-5 text-primary">${displayStr}</div>
-                    </div>
+            <div class="col-md-3 col-6">
+                <div class="p-3 text-center" style="background: #fff; border: 1px solid #e5e5ea; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+                    <div style="font-size: 0.8rem; color: #86868b;">推荐第 ${idx + 1} 组</div>
+                    <div style="font-size: 1.2rem; font-weight: 600; color: #0071e3; margin-top: 4px;">${el}</div>
                 </div>
             </div>
         `;
     });
     html += `</div></div>`;
-    
     document.getElementById('pred-result').innerHTML = html;
 }
 
-// ================= 🚀 核心盲测功能 =================
+function copyPrediction() {
+    if (!currentPredictions || currentPredictions.length === 0) return;
+
+    const typePrefix = {
+        'special': '特码：', 'zodiac_special': '特肖：', 'zodiac': '一肖：',
+        'zodiac2': '二肖：', 'zodiac3': '三肖：', 'zodiac4': '四肖：',
+        'tail': '一尾：', 'tail2': '二尾：', 'tail3': '三尾：', 'tail4': '四尾：'
+    };
+    const separator = ',';
+    const prefix = typePrefix[currentActiveType] || '预测：';
+    const resultText = prefix + currentPredictions.join(separator);
+
+    navigator.clipboard.writeText(resultText).then(() => {
+        const btn = document.getElementById('btn-copy-pred');
+        const originalText = btn.innerText;
+        btn.innerText = '✅ 复制成功';
+        btn.classList.remove('btn-outline-primary');
+        btn.classList.add('btn-success');
+        btn.style.color = '#fff';
+        setTimeout(() => {
+            btn.innerText = originalText;
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-outline-primary');
+            btn.style.color = '';
+        }, 2000);
+    }).catch(err => {
+        alert('复制失败，请重试或手动复制。\n' + err);
+    });
+}
+
+// ==========================================
+// 4大模型盲测逻辑
+// ==========================================
 function runDynamicBlindTest() {
     let startStr = document.getElementById('scan-start').value.trim();
     let endStr = document.getElementById('scan-end').value.trim();
-    let nGroups = parseInt(document.getElementById('scan-groups').value);
-    let baseAmt = parseFloat(document.getElementById('scan-amount').value);
+    let baseAmt = parseFloat(document.getElementById('scan-amount').value) || 10;
+    let nGroups = parseInt(document.getElementById('scan-groups').value) || 1;
 
     let startIdx = allDraws.findIndex(d => d.issue >= startStr);
     if (startIdx === -1 || startIdx < 30) startIdx = 30;
@@ -566,15 +808,16 @@ function runDynamicBlindTest() {
     }
 
     let tbody = document.getElementById('scan-tbody');
-    tbody.innerHTML = '<tr><td colspan="9" class="py-3 text-muted">正在执行 4 大模型平行盲测中...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="py-4 text-muted">正在进行严格独立计奖盲测计算...</td></tr>';
 
     setTimeout(() => {
         let models = ["L30_Model", "W100_Model", "Weighted_Model", "Aggregated_Ensemble"];
-        let scanResults = [];
+        globalScanResults = [];
 
         models.forEach(mName => {
             let hits = 0, totalCost = 0, totalProfit = 0, curMiss = 0, maxMiss = 0;
             let periods = 0;
+            let details = [];
 
             for (let i = startIdx; i < endIdx; i++) {
                 periods++;
@@ -582,61 +825,426 @@ function runDynamicBlindTest() {
                 let targetDraw = allDraws[i];
                 let topEls = getRankDataByModel(historyData, mName, currentActiveType, nGroups);
 
-                let cost = topEls.length * baseAmt;
-                let revenue = 0;
-                let isHit = false;
+                let res = calculateMultiGroupBet(topEls, targetDraw, currentActiveType, baseAmt);
+                totalCost += res.totalCost;
+                totalProfit += res.profit;
 
-                topEls.forEach(el => {
-                    let res = checkHitAndGetOddsExact(currentActiveType, el, targetDraw);
-                    if (res.isHit) {
-                        isHit = true;
-                        revenue += (res.revenue / 10.0) * baseAmt;
-                    }
-                });
-
-                let profit = revenue - cost;
-                totalCost += cost;
-                totalProfit += profit;
-
-                if (isHit) {
-                    hits++;
-                    curMiss = 0;
+                if (res.isHit) {
+                    hits++; curMiss = 0;
+                    details.push({ issue: targetDraw.issue, els: topEls.join(', '), hit: res.hitStr, profit: res.profit.toFixed(0) });
                 } else {
                     curMiss++;
                     if (curMiss > maxMiss) maxMiss = curMiss;
+                    details.push({ issue: targetDraw.issue, els: topEls.join(', '), hit: '未中', profit: res.profit.toFixed(0) });
                 }
             }
 
-            let winRate = (hits / periods) * 100;
-            let roi = (totalProfit / totalCost) * 100;
-            scanResults.push({ mName, periods, hits, winRate, maxMiss, totalCost, totalProfit, roi });
+            let winRate = periods > 0 ? (hits / periods) * 100 : 0;
+            let roi = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+            globalScanResults.push({ mName, periods, hits, winRate, maxMiss, totalCost, totalProfit, roi, details });
         });
 
+        globalScanResults.sort((a, b) => b.roi - a.roi);
+
         tbody.innerHTML = '';
-        scanResults.forEach(r => {
+        globalScanResults.forEach((r, idx) => {
+            const isTop = idx === 0;
+            const bg = isTop ? '#f5f5f7' : 'transparent';
             tbody.innerHTML += `
-                <tr>
-                    <td class="fw-bold">${r.mName}</td>
-                    <td>${r.periods}</td>
-                    <td>${r.hits}</td>
-                    <td class="fw-bold">${r.winRate.toFixed(2)}%</td>
-                    <td class="text-danger">${r.maxMiss}</td>
-                    <td>${r.totalCost.toLocaleString()}</td>
-                    <td class="fw-bold ${r.totalProfit >= 0 ? 'text-success' : 'text-danger'}">${r.totalProfit.toLocaleString()}</td>
-                    <td class="fw-bold ${r.roi >= 0 ? 'text-success' : 'text-danger'}">${r.roi.toFixed(2)}%</td>
-                    <td><button class="btn btn-sm btn-outline-dark py-0" style="font-size:0.75rem;">查</button></td>
+                <tr style="background: ${bg};">
+                    <td style="color: #1d1d1f; font-weight: ${isTop ? '600' : '500'};"><span class="badge me-1" style="background:${isTop ? '#ff9500' : '#86868b'}; font-size:0.65rem;">#${idx+1}</span>${r.mName}</td>
+                    <td style="color: #1d1d1f;">${r.periods}</td>
+                    <td style="color: #1d1d1f;">${r.hits}</td>
+                    <td style="color: #0071e3; font-weight: 500;">${r.winRate.toFixed(2)}%</td>
+                    <td style="color: #ff3b30;">${r.maxMiss}</td>
+                    <td style="color: #1d1d1f;">${r.totalCost.toLocaleString()}</td>
+                    <td style="color: ${r.totalProfit >= 0 ? '#34c759' : '#ff3b30'}; font-weight: 500;">${r.totalProfit.toLocaleString()}</td>
+                    <td style="color: ${r.roi >= 0 ? '#34c759' : '#ff3b30'}; font-weight: 500;">${r.roi.toFixed(2)}%</td>
+                    <td><button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.75rem; border-radius:6px;" onclick="showScanDetail(${idx})">查看</button></td>
                 </tr>
             `;
         });
     }, 50);
 }
 
-function submitCustom() { document.getElementById('is-custom').value = '1'; document.getElementById('query-form').submit(); }
-function submitRange() { document.getElementById('is-custom').value = '0'; document.getElementById('query-form').submit(); }
+function showScanDetail(idx) {
+    let r = globalScanResults[idx];
+    document.getElementById('modal-title').innerText = `${r.mName} - 逐期盲测独立计奖明细`;
+    let tbody = document.getElementById('modal-tbody');
+    tbody.innerHTML = '';
+    
+    if (!r.details || r.details.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-muted">无明细记录</td></tr>';
+    } else {
+        [...r.details].reverse().forEach(d => {
+            tbody.innerHTML += `
+                <tr>
+                    <td style="color: #1d1d1f;">${d.issue}</td>
+                    <td style="color: #86868b;">${d.els}</td>
+                    <td style="color: ${d.hit !== '未中' ? '#34c759' : '#86868b'}; font-weight: 500;">${d.hit}</td>
+                    <td style="color: ${parseFloat(d.profit) >= 0 ? '#34c759' : '#ff3b30'}; font-weight: 500;">${d.profit}</td>
+                </tr>
+            `;
+        });
+    }
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
+}
 
-// 页面加载就绪后初始化盘口
+// ==========================================
+// 多窗口矩阵对比与共识预测逻辑
+// ==========================================
+
+document.getElementById('mw-play-type').addEventListener('change', function(e) {
+    const kContainer = document.getElementById('mw-k-label');
+    const kInput = document.getElementById('mw-k-val');
+    if (e.target.value === 'special') {
+        kContainer.innerText = '买几个号 (1-20)';
+        kInput.value = 10;
+        kInput.removeAttribute('disabled');
+    } else {
+        kContainer.innerText = '下注个数 (固定 1)';
+        kInput.value = 1;
+        kInput.setAttribute('disabled', 'disabled');
+    }
+});
+
+function getWindowTopItems(historyDraws, windowSize, type, k) {
+    const windowDraws = historyDraws.slice(-windowSize);
+    let counter = {};
+    
+    if (type === 'special') {
+        for (let i = 1; i <= 49; i++) counter[i] = 0;
+        windowDraws.forEach(d => {
+            let balls = d.all_7_balls || d.nums || [];
+            balls.forEach(n => counter[n] = (counter[n] || 0) + 1);
+        });
+        let sorted = Object.keys(counter).map(Number).sort((a,b) => {
+            if (counter[b] !== counter[a]) return counter[b] - counter[a];
+            return a - b; 
+        });
+        return sorted.slice(0, k);
+    } 
+    else if (type === 'zodiac') {
+        const zodOrder = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪'];
+        zodOrder.forEach(z => counter[z] = 0);
+        windowDraws.forEach(d => {
+            let balls = d.all_7_balls || d.nums || [];
+            balls.forEach(n => {
+                let z = getZodiac(n, d.issue, d.date || d.draw_date);
+                counter[z]++;
+            });
+        });
+        let sorted = zodOrder.sort((a,b) => {
+            if (counter[b] !== counter[a]) return counter[b] - counter[a];
+            return zodOrder.indexOf(a) - zodOrder.indexOf(b);
+        });
+        return sorted.slice(0, 1); 
+    } 
+    else if (type === 'tail') {
+        for (let i = 0; i <= 9; i++) counter[i] = 0;
+        windowDraws.forEach(d => {
+            let balls = d.all_7_balls || d.nums || [];
+            balls.forEach(n => counter[n % 10]++);
+        });
+        let sorted = Object.keys(counter).map(Number).sort((a,b) => {
+            if (counter[b] !== counter[a]) return counter[b] - counter[a];
+            return a - b;
+        });
+        return sorted.slice(0, 1); 
+    }
+}
+
+function settleSinglePeriod(pickedItems, targetDraw, type, costPerUnit) {
+    let issueStr = targetDraw.issue || '';
+    let dateStr = targetDraw.date || targetDraw.draw_date || '';
+    let balls = targetDraw.all_7_balls || targetDraw.nums || [];
+    let specialNum = targetDraw.special !== undefined ? targetDraw.special : balls[6];
+    
+    let cost = 0, revenue = 0, isHit = false, detailStr = '';
+
+    if (type === 'special') {
+        cost = pickedItems.length * costPerUnit;
+        if (pickedItems.includes(specialNum)) {
+            isHit = true;
+            revenue = 46.0 * costPerUnit;
+            detailStr = `[特码中 ${specialNum}]`;
+        }
+    } 
+    else if (type === 'zodiac') {
+        cost = costPerUnit; 
+        let currentYZ = getCurrentYearZodiac(issueStr, dateStr);
+        let actualZods = balls.map(n => getZodiac(n, issueStr, dateStr));
+        let pick = pickedItems[0];
+        if (actualZods.includes(pick)) {
+            isHit = true;
+            let odds = (pick === currentYZ) ? 1.8 : 2.0;
+            revenue = odds * costPerUnit;
+            detailStr = `[${pick}肖中]`;
+        }
+    } 
+    else if (type === 'tail') {
+        cost = costPerUnit;
+        let actualTails = balls.map(n => n % 10);
+        let pick = pickedItems[0];
+        if (actualTails.includes(pick)) {
+            isHit = true;
+            let odds = (pick === 0) ? 2.0 : 1.8;
+            revenue = odds * costPerUnit;
+            detailStr = `[${pick}尾中]`;
+        }
+    }
+
+    let profit = revenue - cost;
+    return { cost, revenue, profit, isHit, detailStr };
+}
+
+function runMultiWindowTest() {
+    let type = document.getElementById('mw-play-type').value;
+    let k = type === 'special' ? parseInt(document.getElementById('mw-k-val').value) : 1;
+    let startStr = document.getElementById('mw-start').value.trim();
+    let endStr = document.getElementById('mw-end').value.trim();
+    let baseAmt = parseFloat(document.getElementById('mw-amount').value) || 10; 
+
+    let startIdx = 180; 
+    if (startStr) {
+        let found = allDraws.findIndex(d => d.issue >= startStr);
+        if (found !== -1) startIdx = Math.max(180, found); 
+    }
+
+    let endIdx = allDraws.length - 1;
+    if (endStr) {
+        let found = allDraws.findIndex(d => d.issue > endStr);
+        if (found !== -1) endIdx = found - 1;
+    }
+
+    if (startIdx >= endIdx) {
+        alert("回测范围无效或历史数据不足以支撑 180 期的最大窗口计算！"); return;
+    }
+
+    let tbody = document.getElementById('mw-tbody');
+    tbody.innerHTML = '<tr><td colspan="9" class="py-4 text-muted">矩阵计算中...</td></tr>';
+
+    setTimeout(() => {
+        const windows = [5, 10, 15, 20, 30, 60, 120, 180];
+        mwGlobalDetails = [];
+
+        let results = [];
+
+        windows.forEach(w => {
+            let hits = 0, totalCost = 0, totalProfit = 0;
+            let curMiss = 0, maxMiss = 0;
+            let periods = 0;
+            let details = [];
+
+            for (let i = startIdx; i <= endIdx; i++) {
+                periods++;
+                let history = allDraws.slice(0, i);
+                let targetDraw = allDraws[i];
+                
+                let pickedItems = getWindowTopItems(history, w, type, k);
+                let res = settleSinglePeriod(pickedItems, targetDraw, type, baseAmt);
+                
+                totalCost += res.cost;
+                totalProfit += res.profit;
+
+                if (res.isHit) {
+                    hits++; curMiss = 0;
+                } else {
+                    curMiss++; if (curMiss > maxMiss) maxMiss = curMiss;
+                }
+
+                details.push({
+                    issue: targetDraw.issue,
+                    picks: pickedItems.join(','),
+                    result: res.isHit ? res.detailStr : '未中',
+                    profit: res.profit.toFixed(0)
+                });
+            }
+
+            let winRate = periods > 0 ? (hits / periods) * 100 : 0;
+            let roi = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+            
+            results.push({
+                window: w, periods, hits, winRate, maxMiss, 
+                costPerPeriod: totalCost / periods, totalProfit, roi, details
+            });
+            mwGlobalDetails.push(details);
+        });
+
+        results.sort((a,b) => a.window - b.window);
+
+        tbody.innerHTML = '';
+        results.forEach((r, idx) => {
+            let roiColor = r.roi > 0 ? '#34c759' : (r.roi < -5 ? '#ff3b30' : '#ff9500');
+            let isGood = r.roi > 0 && r.maxMiss <= 8;
+            
+            tbody.innerHTML += `
+                <tr style="${isGood ? 'background: rgba(52, 199, 89, 0.05);' : ''}">
+                    <td style="font-weight: 600;">${r.window} 期</td>
+                    <td>${r.periods}</td>
+                    <td>${r.hits}</td>
+                    <td style="color: #0071e3; font-weight: 500;">${r.winRate.toFixed(2)}%</td>
+                    <td style="color: #86868b;">${r.costPerPeriod.toFixed(0)} 元</td>
+                    <td style="color: ${r.totalProfit >= 0 ? '#34c759' : '#ff3b30'}; font-weight: 500;">${r.totalProfit.toFixed(0)}</td>
+                    <td style="color: ${roiColor}; font-weight: 600;">${r.roi.toFixed(2)}%</td>
+                    <td style="color: ${r.maxMiss > 10 ? '#ff3b30' : '#1d1d1f'}; font-weight: 500;">${r.maxMiss} 期</td>
+                    <td><button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.75rem; border-radius:6px;" onclick="showMwDetail(${idx})">明细</button></td>
+                </tr>
+            `;
+        });
+
+    }, 50);
+}
+
+function showMwDetail(idx) {
+    let details = mwGlobalDetails[idx];
+    let wStr = document.querySelector(`#mw-tbody tr:nth-child(${idx+1}) td:first-child`).innerText;
+    
+    document.getElementById('modal-title').innerText = `窗口明细 - ${wStr}`;
+    let tbody = document.getElementById('modal-tbody');
+    tbody.innerHTML = '';
+    
+    if (!details || details.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-muted">无明细记录</td></tr>';
+    } else {
+        [...details].reverse().forEach(d => {
+            tbody.innerHTML += `
+                <tr>
+                    <td style="color: #1d1d1f;">${d.issue}</td>
+                    <td style="color: #0071e3; font-weight: 500;">${d.picks}</td>
+                    <td style="color: ${d.result !== '未中' ? '#34c759' : '#86868b'}; font-weight: 500;">${d.result}</td>
+                    <td style="color: ${parseFloat(d.profit) >= 0 ? '#34c759' : '#ff3b30'}; font-weight: 500;">${d.profit}</td>
+                </tr>
+            `;
+        });
+    }
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
+}
+
+// ==========================================
+// 下一期独立预测终端
+// ==========================================
+function predictNextIssue() {
+    let type = document.getElementById('mw-play-type').value;
+    let k = type === 'special' ? parseInt(document.getElementById('mw-k-val').value) : 1;
+    
+    let checkedCbs = document.querySelectorAll('.mw-window-cb:checked');
+    let priorWindows = Array.from(checkedCbs).map(cb => parseInt(cb.value)).sort((a,b) => a-b);
+    if (priorWindows.length === 0) {
+        alert("请至少选择一个优先窗口！");
+        return;
+    }
+
+    let customTarget = document.getElementById('mw-predict-target-issue').value.trim();
+    let targetIssueStr = "";
+    let baseIdx = allDraws.length - 1;
+
+    if (customTarget) {
+        targetIssueStr = customTarget;
+        let tIdx = allDraws.findIndex(d => d.issue === targetIssueStr);
+        if (tIdx !== -1) {
+            baseIdx = tIdx - 1;
+        } else {
+            let lowerIdx = allDraws.findIndex(d => d.issue >= targetIssueStr);
+            if (lowerIdx === -1) baseIdx = allDraws.length - 1;
+            else baseIdx = lowerIdx - 1;
+        }
+        if (baseIdx < 0) baseIdx = 0;
+    } else {
+        let endStr = document.getElementById('mw-end').value.trim();
+        if (endStr) {
+            let found = allDraws.findIndex(d => d.issue === endStr);
+            if (found !== -1) baseIdx = found;
+        }
+        let baseIssueStr = allDraws[baseIdx].issue;
+        let lastYear = parseInt(baseIssueStr.substring(0, 4));
+        let lastNum = parseInt(baseIssueStr.substring(4));
+        targetIssueStr = lastYear + String(lastNum + 1).padStart(3, '0');
+    }
+    
+    let baseIssueStr = allDraws[baseIdx].issue;
+    let historyData = allDraws.slice(0, baseIdx + 1);
+    
+    let windowNames = {
+        'special': '特码',
+        'zodiac': '平特一肖',
+        'tail': '平特一尾'
+    };
+
+    let rowsHtml = "";
+    nextPredictionsText = `目标期号：${targetIssueStr} | 玩法：${windowNames[type]} | 基准：${baseIssueStr}\n`;
+
+    priorWindows.forEach(w => {
+        let picks = getWindowTopItems(historyData, w, type, k);
+        let displayHtml = "";
+        
+        if (type === 'special') {
+            displayHtml = `<div class="d-flex flex-wrap gap-1">` + 
+                picks.map(n => `<span class="badge" style="background: #0071e3; font-size: 0.75rem; padding: 0.25rem 0.4rem; font-weight: normal; border-radius: 4px;">${String(n).padStart(2,'0')}</span>`).join('') + 
+                `</div>`;
+            nextPredictionsText += `[${w}期] ${picks.map(n => String(n).padStart(2,'0')).join(',')}\n`;
+        } else {
+            displayHtml = `<span class="badge" style="background: #0071e3; font-size: 0.85rem; padding: 0.35rem 0.8rem; border-radius: 6px;">${picks[0]}</span>`;
+            nextPredictionsText += `[${w}期] ${picks[0]}\n`;
+        }
+
+        rowsHtml += `
+            <tr>
+                <td style="color: #86868b; font-weight: 500; width: 80px;">${w} 期</td>
+                <td style="padding: 6px 4px;">${displayHtml}</td>
+            </tr>
+        `;
+    });
+
+    let html = `
+        <div class="alert alert-warning py-2 mb-3" style="font-size: 0.9rem; border-color: #ffe8b3; color: #c96e00;">
+            🎯 目标预测期号：<strong style="color: #ff3b30; font-size: 1.1rem;">${targetIssueStr}</strong> 期 | 玩法：<strong>${windowNames[type]}</strong> | 数据基准：截至 ${baseIssueStr} 期
+        </div>
+        <div class="table-responsive bg-white rounded border" style="border-color: #e5e5ea !important;">
+            <table class="table table-hover align-middle text-center mb-0" style="font-size: 0.9rem;">
+                <tbody>
+                    ${rowsHtml}
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    document.getElementById('mw-next-result').innerHTML = html;
+
+    const btnCopy = document.getElementById('btn-copy-next-pred');
+    if (nextPredictionsText) {
+        btnCopy.removeAttribute('disabled');
+        btnCopy.style.opacity = '1';
+    }
+}
+
+function copyNextPrediction() {
+    if (!nextPredictionsText) return;
+    navigator.clipboard.writeText(nextPredictionsText).then(() => {
+        const btn = document.getElementById('btn-copy-next-pred');
+        const originalText = btn.innerText;
+        btn.innerText = '✅ 复制成功';
+        btn.style.background = '#34c759';
+        btn.style.color = '#fff';
+        btn.style.borderColor = '#34c759';
+        setTimeout(() => {
+            btn.innerText = originalText;
+            btn.style.background = '#fff';
+            btn.style.color = '#ff9500';
+            btn.style.borderColor = '#ff9500';
+        }, 2000);
+    }).catch(err => {
+        alert('复制失败，请重试或手动复制。\n' + err);
+    });
+}
+
 document.addEventListener("DOMContentLoaded", function() {
-    updateRulePanel('zodiac');
+    document.querySelectorAll('a.nav-link, a.navbar-brand').forEach(link => {
+        if (link.href === window.location.href) {
+            link.style.fontWeight = 'bold';
+            link.style.color = '#0071e3';
+        }
+    });
     renderRankTable();
 });
 </script>
